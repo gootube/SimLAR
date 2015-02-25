@@ -1,7 +1,7 @@
 # SimLAR
 Simulasi Lahar - Debris Flow Modelling
 
-Developer in the History of SimLAR:
+Developers in the History of SimLAR:
 
 <2009 - Indonesia Japan Cooperation Program
 | 2009 - S.S. Putra, S. Harjosuwarno, C. Hassan
