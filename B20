@@ -1,0 +1,3352 @@
+      program bedload
+c
+c     version  /96/11/27/  (for win95 WATCOM)
+c
+c     mixed garin size version
+c
+      include'bb20.inc'
+c
+c      CHARACTER*50  FNI,FNO
+c
+c -------------------------------------------------execution statement start here (20-6-2010: adam pr)
+c
+      OPEN(UNIT=1,FILE='input.txt',STATUS='UNKNOWN',
+     *     ACCESS='SEQUENTIAL',FORM='FORMATTED')
+      OPEN(UNIT=2,FILE='output.txt',STATUS='UNKNOWN',
+     *     ACCESS='SEQUENTIAL',FORM='FORMATTED')
+      OPEN(UNIT=4,FILE='o1.txt',STATUS='UNKNOWN',
+     *     ACCESS='SEQUENTIAL',FORM='FORMATTED')
+      OPEN(UNIT=10,FILE='o3.geo',STATUS='UNKNOWN',
+     *     ACCESS='SEQUENTIAL',FORM='FORMATTED')
+      OPEN(UNIT=12,FILE='o4.geo',STATUS='UNKNOWN',
+     *     ACCESS='SEQUENTIAL',FORM='FORMATTED')
+      OPEN(UNIT=14,FILE='o5.geo',STATUS='UNKNOWN',
+     *     ACCESS='SEQUENTIAL',FORM='FORMATTED')
+      OPEN(UNIT=16,FILE='o6.geo',STATUS='UNKNOWN',
+     *     ACCESS='SEQUENTIAL',FORM='FORMATTED')
+      OPEN(UNIT=18,FILE='o7.geo',STATUS='UNKNOWN',
+     *     ACCESS='SEQUENTIAL',FORM='FORMATTED')
+      OPEN(UNIT=20,FILE='water.txt',STATUS='UNKNOWN',
+     *     ACCESS='SEQUENTIAL',FORM='FORMATTED')
+      OPEN(UNIT=22,FILE='sediment.txt',STATUS='UNKNOWN',
+     *     ACCESS='SEQUENTIAL',FORM='FORMATTED')
+c
+ 1000 continue
+c
+c                                                  read input data
+c                                                  jj: 0 in the data example (20-6-2010: adam pr)
+      call  input(jj)
+c      write(*,*)'the processing until here1 ok' 
+c      write(*,*)'jj=',jj
+c      pause
+      
+c                                                  bed load volume check (adam pr:7-12-2010)
+      if(jj.le.1)  call  setcd
+      if(jj.gt.0)  go to 9000
+c      write(*,*)'the processing until here2' 
+c      pause
+c
+c                                                  set general initial values (20-6-2010: adam pr)
+      call inset
+      dt0 = 0.0
+c     dt1 = 0.0
+c      write(*,*)'the processing until here3' 
+c      pause
+c
+      write(6,'(1h ,//''start calculation'')')
+c
+c                                                  time stepping start here (20-6-2010: adam pr)                    
+      do 4000  l=1,lmq
+c                                                  initialization discharge and sediment variables (adam pr:7-12-2010)
+        call debin(l)
+c                                                  kmd: number of computation time step in each input data time interval (24-6-2010: adam pr) 
+        kmd = int(1.0001*tt(l)/dlt(l))
+        dt2 = dlt(l) / 2.0
+c
+        do 5000  k=1,kmd
+          dt1 = float(k) * dlt(l) + dt0
+c
+c
+          itimex = int(dt1 + dt1/86400.0)
+          itime1 = itimex / 3600
+          itimey = itimex - itime1 * 3600
+          itime2 = itimey / 60
+          itime3 = itimey - itime2 * 60
+          if(itime3.eq.0) write(6,1200) itime1,itime2
+ 1200     format(1h ,'time : ',i3,'h ',i2,'m end')
+c
+c                                                  dt2: half of computation time step (24-6-2010: adam pr) 
+c                                                  find discharge per unit width in x and y directions (adam pr:7-12-2010)
+          call  mncal(dt2)
+c                                                  find mean grain diameter (adam pr:7-12-2010)
+          call dmcal
+c                                                  find bed load transport in x and y directions (adam pr:7-12-2010)
+          call cmncal
+c                                                  find other transport load ? in x and y directions (adam pr:7-12-2010)
+          call qbscal
+c                                                  find water depth change (adam pr:7-12-2010)
+c          write(6,'(1h ,//''qbscal passed'')') 
+          call depcal(dt2)
+c                                                  "flooring" and scalling bed load to 0.45 times of discharge (adam pr:7-12-2010)
+          call crect2(dt2)
+c                                                  find bed elev change (adam pr:7-12-2010)
+          call bedcal(dt2)
+c                                                  sets back temporary array values to zero
+          call delete
+c                                                  find maximum values                                                 
+          call maxcal
+c
+          if(k.ne.kmd)  go to 5100
+c          write(*,*)'this step passed1ok'
+c          pause
+          if(iplt.gt.0)  go to 5200
+c          write(*,*)'this step passed1ok'
+c          pause
+          open(7,file=dfname(l),status='unknown',form='unformatted')
+          call outdat(l,dt1,dt2)
+          close(7)
+c           write(*,*)'this step passed1ok'
+c          pause
+ 5200     continue
+c
+c          write(*,*)'this step passed1ok'
+c          pause
+          wbl=0.
+          vbl=0.
+          do 1110 j=2,jm0
+            do 1100 i=2,im0
+              if(ipp(i,j).gt.0)  go to 1100
+              if(zi(i,j).ge.0.) wbl=wbl+hh3(i,j)*dlx*dly
+              if(zi(i,j).ge.0.) vbl=vbl+(zl3(i,j)-zi(i,j))*dlx*dly*cst
+ 1100       continue
+ 1110     continue
+c
+c
+          call allout(l,dt1,dt2)
+c
+c                                                       write to text file (20-6-2010: adam pr)
+          if(iprn(1).eq.1)  call print1(dt1,dt2)
+          if(iprn(2).eq.1)  call print2(dt1,dt2)
+          if(iprn(3).eq.1)  call print3(dt1,dt2)
+          if(iprn(4).eq.1)  call print4(dt1,dt2)
+          if(iprn(5).eq.1)  call print5(dt1,dt2)
+          if(iprn(6).eq.1)  call print6(dt1,dt2)
+ 5100     continue
+c
+          do 5600  j9=2,jm0
+c            do 5500  i9=2,im0
+            do 5500  i9=ibc(1,j9),ibc(2,j9)
+              hh01(i9,j9) = hh1(i9,j9)
+              hh1(i9,j9)  = hh3(i9,j9)
+              zl1(i9,j9)  = zl3(i9,j9)
+              qm02(i9,j9) = qm0(i9,j9)
+              qn02(i9,j9) = qn0(i9,j9)
+              qm0(i9,j9)  = qm2(i9,j9)
+              qn0(i9,j9)  = qn2(i9,j9)
+ 5500       continue
+ 5600     continue
+c
+ 5000   continue
+c
+        dt0 = dt0 + tt(l)
+c      write(*,*)'this step passed2'
+c      pause
+c
+ 4000 continue
+      go to 1000
+ 9000 continue
+      write(6,'(1h ,''nomal end'',2x,a80)') itit
+c      write(*,*)'this step passed3'
+c      pause
+c     
+c      close(5)
+c      close(6)
+      close(10)
+c
+      stop
+      end
+c
+c==============================================================================================================
+c
+      subroutine  setcd
+c                                                                  bed load volume check (adam pr:7-12-2010)
+      include'bb20.inc'
+c
+c
+      dimension  qbin(25),bb0(120),hin(120),qbt0(120),qbt1(120),
+     *           qbb0(25,120),qbb1(25,120),ccd(25,120)
+c                                                                  loop for inflow points (2-12-2010: adam pr)
+c      write(*,*)'the processing until here 2??'
+c      pause
+      do 9000 llq = 1 , lhd
+c
+      write(2,200)   llq
+      isw = 0
+      write(2,202)
+c     if(cdu(1,1).lt.0.0)  then
+c      write(2,203)
+c      go to 2010
+c     end if
+      write(2,206)   (gsd(i),i=1,idnum)
+      qbtt = 0.0
+c                                                                  loop for hydrograph bars (2-12-2010: adam pr)                                       
+      do 2000 i=1,lmq
+c
+       h0  = 0.0
+       bb0(i) = 0.0
+        if(qi0(llq,i).le.0.0)  go to 3800
+c                                                                  alph: coeff of regime formula (1-12-2010: adam pr)
+c                                                                  bb0: river width based on regime formula (1-12-2010: adam pr)
+c                                                                  qi0: river discharge (1-12-2010: adam pr)
+        bb0(i) = alph * sqrt( qi0(llq,i) )
+c                                                                  bi0: river width (1-12-2010: adam pr)
+        if(bb0(i).gt.bi0(llq))  bb0(i) = bi0(llq)
+c                                                                  sodo = n Manning (1-12-2010: adam pr)
+c                                                                  h0 is normal depth (1-12-2010: adam pr)
+        h0 = ( qi0(llq,i) * sodo / bb0(i) / sqrt(slu(llq)) )**.6
+ 3800  continue
+        hin(i) = h0
+        qbt0(i) = 0.0
+c                                                                  cdu: sediment concentration (2-12-2010: adam pr)
+c
+c                                                                  loop for sed fraction (2-12-2010: adam pr)
+        do 3000 l=1,idnum
+         if(cdu(l,llq,i).lt.0.0)  isw = 1
+c                                                                  qbb0: total fractional inflow sedimen in a hydrograf bar (2-12-2010: adam pr)
+c                                                                  qbtt: total inflow sed of all hydrograph bars (2-12-2010: adam pr)
+c                                                                  qbt0: accumulation of inflow sed from fractions of each hydrograph bar (2-12-2010: adam pr)
+         qbb0(l,i) = qi0(llq,i) * cdu(l,llq,i) * tt(i)
+         qbt0(i) = qbt0(i) + qbb0(l,i)
+         if(isw.eq.1.and.qi0(llq,i).gt.0.0)  qbb0(l,i) =  -1.0
+ 3000   continue
+c                                                                  end of loop, sed fraction (2-12-2010: adam pr)
+       if(cdu(1,llq,i).lt.0.0)  qbt0(i) = -1.0
+       qbtt = qbtt + qbt0(i)
+       write(2,210) i,qi0(llq,i),tt(i),hin(i),qbt0(i),
+     *                                      (qbb0(l,i),l=1,idnum)
+ 2000 continue
+c                                                                  end of loop, hydrograph bars (2-12-2010: adam pr)
+c                                                                  loop for sed fraction (2-12-2010: adam pr)
+      
+      do 2030  l = 1, idnum
+       qbin(l) = 0.0
+c                                                                  loop for hydrograph bars (2-12-2010: adam pr)
+       do 2040  i = 1, lmq
+        qbin(l) = qbin(l) + qbb0(l,i)
+        if(isw.eq.1)  qbin(l) = -1.0
+ 2040  continue
+c                                                                  end of loop, hydr bars (2-12-2010: adam pr)
+ 2030 continue
+c                                                                  end of loop, sed fract (2-12-2010: adam pr)
+       if(isw.eq.1)  qbtt = -1.0
+       write(2,220)  qbtt ,(qbin(l),l=1,idnum)
+c
+ 2010 continue
+c
+      qbtt = 0.0
+      write(2,204)
+      write(2,206)   (gsd(i),i=1,idnum)
+c                                                     loop of hydr bars (2-12-2010: adam pr)
+      do 1000 i=1,lmq               
+      qbt1(i) = 0.0
+      ust = sqrt( hin(i) * slu(llq) * 9.8 )
+c                                                     ust: shear velocity (1-12-2010: adam pr)
+c                                                     slu: longitudinal slope (1-12-2010: adam pr)
+c
+      do 4000 l = 1 , idnum
+c                                                     loop of sed fractions (2-12-2010: adam pr)
+      qbb1(l,i) = 0.0
+      ccd(l,i)  = 0.0
+c                                                     gsd: grain size of classified sed (fractional) (1-12-2010: adam pr)
+c                                                     ss1: sed-water relative density (sig/rho - 1) (1-12-2010: adam pr)
+c                                                     dm0: mean diameter (total) (1-12-2010: adam pr)
+c                                                     tast0: tau star on bed (1-12-2010: adam pr)
+c                                                     tastcm: minimum tau star critical (1-12-2010: adam pr)
+c                                                     tastc: tau star critical of particular grain size (1-12-2010: adam pr)
+c
+      tast0 = hin(i) * slu(llq) / ss1 / gsd(l)
+      aa = gsd(l) / dm0
+      if(aa.lt.0.4)  tastc = 0.85 * tastcm / aa
+      if(aa.ge.0.4)  then
+c        a1 = dlog10( 19.0 ) / dlog10( 19.0 * aa )
+         a1 = 1.27875360095  / dlog10( 19.0 * aa )
+         tastc = a1 * a1 * tastcm
+      end if
+      if(tast0.lt.tastc)  go to  4000
+c                                                    fbed: Phi bed / bed function (1-12-2010: adam pr)
+      a1 = fbed(tast0,tastc)
+c                                                    bed sed transport rate of particular grain size (1-12-2010: adam pr) 
+      a2 = a1 * sqrt( ss1 * 9.8 * gsd(l)**3 )
+      df = dsinp(l)
+c                                                    multiplied by fraction percentage (5-12-2010: adam pr)
+      qbb = a2 * df
+c
+      qbs = 0.0
+      if(ild.eq.0) go to 6000
+c
+      if(qi0(llq,i).le.0.0)  go to 6000
+      df = df * 100.0
+c                                                    u / U star (5-12-2010: adam pr)
+      uust = qi0(llq,i) / hin(i) / bb0(i) / ust
+c                                                    w / u star (5-12-2010: adam pr)
+      wust = w0(l) / ust
+c                                                   
+      dst = 0.5 / wust * exp( - wust * wust )
+      cb = 5.55 * df * dst**1.61
+      call pcal(wust,uust,p)
+c                                                   ???
+      qbs = qi0(llq,i) * cb * p / bb0(i) * 1.0e-6
+c
+ 6000 continue
+      qb = qbb + qbs
+c
+      qbb1(l,i) = qb * bb0(i) * tt(i)
+      ccd(l,i) = 0.0
+      if(qi0(llq,i).gt.0.0)   ccd(l,i) = qb * bb0(i) / qi0(llq,i)
+      qbt1(i) = qbt1(i) + qbb1(l,i)
+c                                                    sed transport in a hydr bar from all fraction
+ 4000 continue
+c                                                    end of loop, sed fraction 
+       qbtt = qbtt + qbt1(i)
+       write(2,210) i,qi0(llq,i),tt(i),hin(i),qbt1(i),
+     *                                      (qbb1(l,i),l=1,idnum)
+ 1000 continue
+c
+      do 2031  l = 1, idnum
+        qbin(l) = 0.0
+      do 2041  i = 1, lmq
+        qbin(l) = qbin(l) + qbb1(l,i)
+ 2041 continue
+ 2031 continue
+       write(2,220)  qbtt ,(qbin(l),l=1,idnum)
+c
+       write(2,205)
+       write(2,206)   (gsd(i),i=1,idnum)
+       qbtt = 0.0
+       do 3010 i = 1,lmq
+         qbt1(i) = 0.0
+         isw = 0
+         if(cdu(1,llq,i).lt.0.0)  isw = 1
+        do 3020 l = 1,idnum
+          if(cdu(l,llq,i).gt.ccd(l,i))  cdu(l,llq,i) = ccd(l,i)
+          if(isw.eq.1)   cdu(l,llq,i) = ccd(l,i)
+          qbb1(l,i) = cdu(l,llq,i) * qi0(llq,i) * tt(i)
+          qbt1(i) = qbt1(i) + qbb1(l,i)
+ 3020 continue
+c
+       qbtt = qbtt + qbt1(i)
+       write(2,210) i,qi0(llq,i),tt(i),hin(i),qbt1(i),
+     *                                      (qbb1(l,i),l=1,idnum)
+ 3010 continue
+c
+      do 2032  l = 1, idnum
+        qbin(l) = 0.0
+      do 2042  i = 1, lmq
+        qbin(l) = qbin(l) + qbb1(l,i)
+ 2042 continue
+ 2032 continue
+       write(2,220)  qbtt ,(qbin(l),l=1,idnum)
+c
+ 9000 continue
+c
+      return
+c
+  200 format(1h1,5x,'*********  bedload volume check list ',
+     *              '[ hydor graph number',i3,'] **********'//)
+  202 format(1h ,5x,'list-1 ( bedload volume  by input data )'/)
+  203 format(1h ,5x,'cdu(1,1) < 0  ..........no data'//)
+  204 format(1h //,5x,'list-2 ( bedload volume  by calculation )')
+  205 format(1h //,5x,'list-3 ( bedload volume for calculation )')
+  206 format(1h ,5x,'  no.','     qi0 ','    tt  ','   hu   ',
+     *             '   bedload ', 5(f10.5))
+  210 format(1h ,5x,i5,f10.3,f8.2,f8.3,f10.1,5(f10.1))
+  220 format(1h ,20x,'   total bedload',f10.1,5(f10.1)//)
+  230 format(1h ,5x,'      list-2 is data for calculation')
+c
+      end
+c
+c===========================================================================================================================
+c
+      subroutine  debin(l)
+c                                    initialization of discharge and sediment values (24-6-2010: adam pr)
+      include'bb20.inc'
+c
+c
+      dimension  qqb(25,10),qbin(25),qcd(25)
+c
+      write(2,200)
+c                                                       lhd: number of inflow boundary strings (5-12-2010: adam pr)
+      do 9000 llq = 1 , lhd
+c                                                       ipf = 1 or 2: top or bottom inflow boundary (23-6-2010: adam pr)
+c                                                       ip: row number of boundary nodes   (23-6-2010: adam pr)                                
+      if(ipf(llq).le.2)  then
+         ip = ijp(llq,1)
+c                                                       jp: inflow boundary node numbers (23-6-2010: adam pr)
+c                                                       ijp(*,2): left end boundary node number, the j  (23-6-2010: adam pr)
+c                                                       ijp(*,2): right end boundary node number, the j (23-6-2010: adam pr)
+c                                                       ipp: number of input flow boundary string (5-12-2010: adam pr)
+         do 9020 jp = ijp(llq,2) , ijp(llq,3)
+           ipp(ip,jp) = llq
+ 9020    continue
+c                                                       ddl: seems to be width of inflow boundary (23-6-2010: adam pr) 
+         ddl = dly * float(ijp(llq,3) - ijp(llq,2) + 1 )
+      end if 
+c
+      if(ipf(llq).ge.3)  then
+         jp = ijp(llq,3)
+         do 9010 ip = ijp(llq,1) , ijp(llq,2)
+          ipp(ip,jp) = llq
+ 9010 continue
+         ddl = dlx * float(ijp(llq,2) - ijp(llq,1) + 1 )
+      end if
+c
+c                                                       q1: discharge per unit width (23-6-2010: adam pr)
+      q1 = qi0(llq,l) / ddl
+      if(q1.le.0.0)  then                                                      
+        qq(llq) = 0.0                                                          
+        hu(llq) = 0.0                                                        
+        uu(llq) = 0.0
+        go to  7000
+       end if                                                         
+c                                                       idnum: number of grain size of sediment (up to 5) (23-6-2010: adam pr)
+c                                                       cdu: sediment concentration                       (23-6-2010: adam pr)
+       do 4100 k = 1,idnum
+         if(q1.le.0.0)  cd(k,llq) = 0.0
+         cd(k,llq) = cdu(k,llq,l)
+         qqb(k,llq) = qi0(llq,l) * cdu(k,llq,l) / ddl
+ 4100 continue
+c                                                       qqb: suspended sediment volume or mass per unit width (23-6-2010: adam pr)
+c
+       qq(llq) = q1
+c                                                       if < 0: huu or hu is calculated based on (q * n/sqrt(slope))^(3/5) (23-6-2010: adam pr)
+c                                                       this means based on Manning formula for normal flow condition      (23-6-2010: adam pr)
+c                                                       q = h*u = h * 1/n * h^(2/3) * sqrt(slope)                          (23-6-2010: adam pr)
+c                                                       
+      if(huu(llq,l).gt.0.0)  go to 5000
+       hu(llq) = ( q1 * sodo / sqrt(slu(llq)) )**.6
+       uu(llq) = 0.0
+       if(hu(llq).gt.eps)  uu(llq) = qq(llq) / hu(llq)
+      go to 6000
+c
+ 5000 continue
+      hu(llq) = huu(llq,l)
+      uu(llq) = qq(llq) / huu(llq,l)
+ 6000 continue
+c
+c
+ 7000 continue
+      write(2,201)  llq
+      write(2,205)
+      cdt = 0.0
+      qbtin = 0.0
+c
+      do 4200 l0 = 1 ,idnum
+       qcd(l0)  =  cd(l0,llq)
+       qbin(l0) =  qi0(llq,l) * cdu(l0,llq,l) * tt(l)
+       qbtin = qbtin + qbin(l0)
+       write(2,210)  gsd(l0),cd(l0,llq),qcd(l0),qbin(l0)
+ 4200 continue
+      if(qi0(llq,l).gt.0.0)  cdt = qbtin /  qi0(llq,l) / tt(l)
+c
+      write(2,220)
+      write(2,230)  qbtin
+      write(2,100)  qq(llq),uu(llq),hu(llq)
+      write(2,110)  cdt,cmpm
+ 9000 continue
+c
+c
+c
+      do 4600 j=2,jm0
+      do 4700 i=2,im0
+c
+      if(ipp(i,j).le.0)  go to 4700
+c
+        id = ipp(i,j)
+c
+         hh01(i,j) = hu(id)
+         hh1(i,j) = hu(id)
+         hh3(i,j) = hu(id)
+         ibz(i,j) = 0
+c
+        if(ipf(id).eq.1)  then
+            qm2(i+1,j)  = qq(id)
+            qm0(i+1,j)  = qq(id)
+            qm02(i+1,j) = qq(id)
+            uvx(i+1,j)  = uu(id)
+        end if
+c             
+        if(ipf(id).eq.2)  then
+            qm2(i,j)  = -qq(id)
+            qm0(i,j)  = -qq(id)
+            qm02(i,j) = -qq(id)
+            uvx(i,j)  = uu(id)
+        end if
+c             
+        if(ipf(id).eq.3)  then
+            qn2(i,j+1)  = qq(id)
+            qn0(i,j+1)  = qq(id)
+            qn02(i,j+1) = qq(id)
+            uvy(i,j+1)  = uu(id)
+        end if
+c             
+        if(ipf(id).eq.4)  then
+           qn2(i,j)   = -qq(id)
+           qn0(i,j)   = -qq(id)
+           qn02(i,j)  = -qq(id)
+           uvy(i,j) = uu(id)
+        end if
+c
+      do 5100 k = 1,idnum
+        if(ipf(id).eq.1)    qmb(k,i+1,j) = qqb(k,id)
+        if(ipf(id).eq.2)    qmb(k,i,j)  = -qqb(k,id)
+        if(ipf(id).eq.3)    qnb(k,i,j+1) = qqb(k,id)
+        if(ipf(id).eq.4)    qnb(k,i,j)  = -qqb(k,id)
+ 5100 continue
+c
+ 4700  continue
+ 4600  continue
+c
+c
+      return
+c
+  100 format( 5x,' qq = ',f10.6,5x,' uu = ',f10.6,5x,' hu = ',f10.6)
+  110 format( 5x,' cd = ',f10.6,5x,'cmpm= ',f10.6)
+  200 format(1h1//1x,'  *** calculation condition ***  '//)
+  201 format(1h //,'.......... hydrograph no.',i3)
+  205 format( 5x,' grain size       cdu  bedload/1mesh     bedload')
+  210 format( 5x,f12.4,f12.8,2f12.4)
+  220 format( 5x,'-------------------------------------------------')
+  230 format( 5x,'                       total bedload',f12.4/)
+c
+      end
+c
+c=======================================================================================================================
+c
+c                                                              discharge per unit wieght in x and y directions calculation (adam pr:7-12-2010)
+      subroutine  mncal(dt)
+c
+      include'bb20.inc'
+c                                                              dt2: comp. time step (24-6-2010: adam pr)
+c
+      dt2 = 1.0 / (2.0*dt)
+c
+c
+      do 2000 j=2,jm0
+c       do 1000 i=2,im0
+c                                                              ibc: may be flag for bc, not convinced yet (24-6-2010: adam pr)                
+        do 1000 i=ibc(1,j),ibc(2,j)
+c
+c============================================================= boundary:  if land skip bellow statements and go to next i / ibc (24-6-2010: adam pr)
+          if(zi(i,j).lt.0.0)  go to 1000
+          if(ipp(i-1,j).gt.0.or.ipp(i,j).gt.0)  go to 3000
+c======================================================================:     
+c                                                                         if the upper row is not land and kabe not 2 (kabe= 1,2, or 3) skip
+c                                                                         this probably means qm2 for discharge from upstream ? (25-6-2010: adam pr)
+          if((zi(i-1,j).ge.0.0).and.
+     *      (kabe(i-1,j).ne.1).and.(kabe(i-1,j).ne.3))  go to 4000
+          qm2(i,j) = 0.0
+          go to 3000
+c                                                                         kabe = 2 means right "training dyke" directing dyke (26-6-2010: adam pr)
+ 4000     continue
+c                                                                         this following computation for upstream condition land and kabe = 2 (25-6-2010: adam pr)
+          qm2(i,j) = 0.0
+c                                                                         depth i plus upstream/ upper row (25-6-2010: adam pr)
+c                                                                     
+c                                                                         1[i + (i-1)]   mid+upper  (25-6-2010: adam pr)
+      h0 = hh1(i,j) + hh1(i-1,j)
+c
+      a6 = 0.0                                                                 
+      a7 = 0.0                                                                 
+      a8 = 0.0                                                                 
+c                                                                              
+c.................................................................. xdx
+      a1 = 0.0
+      a2 = 0.0
+c                                                                         1[(i+1)+    i] + 0[(i+1)+    i]   mid+lower  (25-6-2010: adam pr)                                                            
+      h1 = hh1(i+1,j) + hh1(i  ,j) + hh01(i+1,j) + hh01(i  ,j)
+c                                                                         1[i    +(i-1)] + 0[i    +(i-1)]   mid+upper  (25-6-2010: adam pr)
+      h2 = hh1(i  ,j) + hh1(i-1,j) + hh01(i,  j) + hh01(i-1,j)
+c                                                                         check if less or more than tolerable depth = eps (26-6-2010: adam pr)
+      if(h1.ge.eps)  a1 = 2.0 * ( qm0(i+1,j) + qm02(i+1,j) ) / h1
+      if(h2.ge.eps)  a2 = 2.0 * ( qm0(i  ,j) + qm02(i  ,j) ) / h2
+c
+c============================================================= boundary  
+         if(ipp(i+1,j).gt.0)  then                                                 
+         id = ipp(i+1,j)                                                        
+         if(ipf(id).eq.2)   a1 = -uu(id)
+      end if                                                                    
+c======================================================================         
+c                                                                               
+      u1 = a1 + a2                                                              
+c                                                                               
+      a1 = 0.0                                                                  
+      a2 = 0.0                                                                  
+      h1 = hh1(i,  j) + hh1(i-1,j) + hh01(i  ,j) + hh01(i-1,j)                  
+      h2 = hh1(i-1,j) + hh1(i-2,j) + hh01(i-1,j) + hh01(i-2,j)                  
+      if(h1.ge.eps)  a1 = 2.0 * ( qm0(i  ,j) + qm02(i  ,j) ) / h1               
+      if(h2.ge.eps)  a2 = 2.0 * ( qm0(i-1,j) + qm02(i-1,j) ) / h2               
+c                                                                               
+c============================================================= boundary         
+      if(ipp(i-2,j).gt.0)  then                                                 
+        id = ipp(i-2,j)                                                         
+        if(ipf(id).eq.1)   a2 = uu(id)
+      end if                                                                    
+c======================================================================         
+c                                                                               
+      u0 = a1 + a2                                                              
+c                                                                               
+      q3 = ( qm0(i+1,j) + qm02(i+1,j) ) / 2.0                                   
+      q2 = ( qm0(i  ,j) + qm02(i  ,j) ) / 2.0                                   
+      q1 = ( qm0(i-1,j) + qm02(i-1,j) ) / 2.0                                   
+c                                                                               
+      xdx =  u1 * ( q2 + q3 ) + abs( u1 ) * ( q2 - q3 )                         
+     *     - u0 * ( q1 + q2 ) - abs( u0 ) * ( q1 - q2 )                         
+      xdx = xdx / dlx / 4.0                                                     
+c                                                                               
+c................................................................. xdy          
+c                                                                               
+      q1 = ( qm0(i,j-1) + qm02(i,j-1) ) / 2.0                                   
+      q2 = ( qm0(i,j  ) + qm02(i,j  ) ) / 2.0                                   
+      q3 = ( qm0(i,j+1) + qm02(i,j+1) ) / 2.0                                   
+c                                                                               
+      v1= 0.0                                                                   
+      a1 = 2.0 * ( qn0(i-1,j) + qn02(i-1,j) )                                   
+      h1 = hh1(i-1,j) + hh1(i-1,j-1) + hh01(i-1,j) + hh01(i-1,j-1)              
+      if(h1.ge.eps)  v1 = a1 / h1                                               
+c                                                                               
+      v2 = 0.0                                                                  
+      a2 = 2.0 * ( qn0(i-1,j+1) + qn02(i-1,j+1) )                               
+      h2 = hh1(i-1,j+1) + hh1(i-1,j) + hh01(i-1,j+1) + hh01(i-1,j)              
+      if(h2.ge.eps)  v2 = a2 / h2                                               
+c                                                                               
+      v3 = 0.0                                                                  
+      a3 = 2.0 * ( qn0(i,j) + qn02(i,j) )                                       
+      h3 = hh1(i,j) + hh1(i,j-1) + hh01(i,j) + hh01(i,j-1)                      
+      if(h3.ge.eps)  v3 = a3 / h3                                               
+c                                                                               
+      v4 = 0.0                                                                  
+      a4 = 2.0 * ( qn0(i,j+1) + qn02(i,j+1) )                                   
+      h4 = hh1(i,j+1) + hh1(i,j) + hh01(i,j+1) + hh01(i,j)                      
+      if(h4.ge.eps)  v4 = a4 / h4                                               
+c                                                                               
+      xdy =  (v2 + v4) * (q2 + q3) + abs(v2 + v4) * (q2 - q3)                   
+     *     - (v1 + v3) * (q1 + q2) - abs(v1 + v3) * (q1 - q2)                   
+      xdy = xdy / dly / 4.0                                                     
+c
+      a5 = bex * xdx + bex * xdy
+c
+      if(h0.lt.eps)  go to 2250
+c
+      a6 = -9.8 * h0 / (2.0 * dlx)
+      a6 = a6 * (hh1(i,j) + zl1(i,j) - hh1(i-1,j) - zl1(i-1,j))
+c
+      u0 = 0.0
+      h9 = hh01(i,j) + hh01(i-1,j) + hh1(i,j) + hh1(i-1,j)
+      if(h9.ge.eps)  u0 = 2.0 * ( qm0(i,j) + qm02(i,j) ) / h9
+c
+      call v0cal(i,j,v1,v2,v3,v4,v0)
+c
+      a8 = -9.8 * sodo * sodo * sqrt( u0*u0 + v0*v0 )
+      a8 = a8 / h0 / ( h0/2.0 )**(1.0/3.0)
+c
+ 2250 continue
+      a9 = a6 + a7 - a5 + qm0(i,j) * ( dt2 + a8)
+      a0 = dt2 - a8
+      qm2(i,j) = a9 / a0
+c
+      if(qm2(i,j).lt.-exo)  call calerr(dt1,dt,'qm--')
+      if(qm2(i,j).gt. exo)  call calerr(dt1,dt,'qm++')
+c
+ 3000 continue
+c============================================================= boundary         
+      if(ipp(i,j).gt.0.or.ipp(i,j-1).gt.0)  go to 1000
+c======================================================================
+      if((zi(i,j-1).ge.0.0).and.
+     *  (kabe(i,j-1).ne.2).and.(kabe(i,j-1).ne.3))   go to 5000
+       qn2(i,j) = 0.0
+       go to 1000
+ 5000 continue
+c                                                                       kabe = 1: below (26-6-2010: adam pr)
+       qn2(i,j) = 0.0
+c
+      h0 = hh1(i,j) + hh1(i,j-1)
+c
+      a6 = 0.0
+      a7 = 0.0
+      a8 = 0.0
+c
+c.................................................................. ydy
+      a1 = 0.0
+      a2 = 0.0
+      h1 = hh1(i,j+1) + hh1(i,j  ) + hh01(i,j+1) + hh01(i,j  )
+      h2 = hh1(i,j  ) + hh1(i,j-1) + hh01(i,j  ) + hh01(i,j-1)
+      if(h1.ge.eps)  a1 = 2.0 * ( qn0(i,j+1) + qn02(i,j+1) ) / h1
+      if(h2.ge.eps)  a2 = 2.0 * ( qn0(i  ,j) + qn02(i  ,j) ) / h2
+c
+c============================================================= boundary         
+      if(ipp(i,j+1).gt.0)  then                                                 
+         id = ipp(i,j+1)                                                        
+         if(ipf(id).eq.4)   a1 = -uu(id)
+      end if                                                                    
+c======================================================================
+c
+      v1 = a1 + a2
+c
+      a1 = 0.0
+      a2 = 0.0
+      h1 = hh1(i,  j) + hh1(i,j-1) + hh01(i  ,j) + hh01(i,j-1)
+      h2 = hh1(i,j-1) + hh1(i,j-2) + hh01(i,j-1) + hh01(i,j-2)
+      if(h1.ge.eps)  a1 = 2.0 * ( qn0(i  ,j) + qn02(i  ,j) ) / h1
+      if(h2.ge.eps)  a2 = 2.0 * ( qn0(i,j-1) + qn02(i,j-1) ) / h2
+c
+c============================================================= boundary         
+      if(ipp(i,j-2).gt.0)  then                                                 
+        id = ipp(i,j-2)                                                         
+        if(ipf(id).eq.3)   a2 = uu(id)
+      end if                                                                    
+c======================================================================         
+c                                                                               
+      v0 = a1 + a2
+c
+      q1 = ( qn0(i,j-1) + qn02(i,j-1) ) / 2.0
+      q2 = ( qn0(i  ,j) + qn02(i  ,j) ) / 2.0
+      q3 = ( qn0(i,j+1) + qn02(i,j+1) ) / 2.0
+c
+      ydy =  v1 * ( q2 + q3 ) +  abs( v1 ) * ( q2 - q3 )
+     *     - v0 * ( q1 + q2 ) -  abs( v0 ) * ( q1 - q2 )
+      ydy = ydy / dly / 4.0
+c
+c.................................................................. ydx
+c
+      u1= 0.0
+      a1 = 2.0 * ( qm0(i,j-1) +  qm02(i,j-1) )
+      h1 = hh1(i,j-1) + hh1(i-1,j-1) + hh01(i,j-1) + hh01(i-1,j-1)
+      if(h1.ge.eps)  u1 = a1 / h1
+c
+      u2 = 0.0
+      a2 = 2.0 * ( qm0(i+1,j-1) + qm02(i+1,j-1) )
+      h2 = hh1(i+1,j-1) + hh1(i,j-1) + hh01(i+1,j-1) + hh01(i,j-1)
+      if(h2.ge.eps)  u2 = a2 / h2
+c
+      u3 = 0.0
+      a3 = 2.0 * ( qm0(i,j) + qm02(i,j) )
+      h3 = hh1(i,j) + hh1(i-1,j) + hh01(i,j) + hh01(i-1,j)
+      if(h3.ge.eps)  u3 = a3 / h3
+c
+      u4 = 0.0
+      a4 = 2.0 * ( qm0(i+1,j) + qm02(i+1,j) )
+      h4 = hh1(i+1,j) + hh1(i,j) + hh01(i+1,j) + hh01(i,j)
+      if(h4.ge.eps)  u4 = a4 / h4
+c
+      q1 = ( qn0(i-1,j) + qn02(i-1,j) ) / 2.0
+      q2 = ( qn0(i  ,j) + qn02(i  ,j) ) / 2.0
+      q3 = ( qn0(i+1,j) + qn02(i+1,j) ) / 2.0
+c
+      ydx =  (u2 + u4) * (q2 + q3) +  abs(u2 + u4) * (q2 - q3)
+     *     - (u1 + u3) * (q1 + q2) -  abs(u1 + u3) * (q1 - q2)
+      ydx = ydx / dlx / 4.0
+c
+      a5 = bey * ydy + bey * ydx
+c
+      if(h0.lt.eps)  go to 2400
+c
+      a6 = -9.8 * h0 / (2.0 * dly)
+      a6 = a6 * (hh1(i,j) + zl1(i,j) - hh1(i,j-1) - zl1(i,j-1))
+c
+      call u0cal(i,j,u1,u2,u3,u4,u0)
+c
+      v0 = 0.0
+      h9 = hh01(i,j) + hh01(i,j-1) + hh1(i,j) + hh1(i,j-1)
+      if(h9.ge.eps)  v0 = 2.0 * ( qn0(i,j) + qn02(i,j) ) / h9
+c
+      a8 = -9.8 * sodo * sodo * sqrt( u0*u0 + v0*v0 )
+      a8 = a8 / h0 / ( h0/2.0 )**(1.0/3.0)
+ 2400 continue
+      a9 = a6 + a7 - a5 + qn0(i,j)*(dt2 + a8)
+      a0 = dt2 - a8
+      qn2(i,j) = a9 / a0
+c
+      if(qn2(i,j).lt.-exo)  call calerr(dt1,dt,'qm--')
+      if(qn2(i,j).gt. exo)  call calerr(dt1,dt,'qm++')
+c
+ 1000 continue
+ 2000 continue
+c
+      return
+      end
+c ------------------------------------------------------------------------
+      subroutine v0cal(i,j,v1,v2,v3,v4,v0)
+c
+      include'bb20.inc'
+c
+      v0 = ( v1 + v2 + v3 + v4 ) / 4.0
+c
+      if((ibz(i  ,j-1).lt.  0.or.kabe(i  ,j-1).ge.2).and.
+     *   (ibz(i-1,j+1).lt.  0.or.kabe(i-1,j  ).ge.2).and.
+     *   (ibz(i  ,j+1).lt.  0.or.kabe(i  ,j  ).ge.2))     go to 2500
+      if((ibz(i-1,j-1).lt.  0.or.kabe(i-1,j-1).ge.2).and.
+     *   (ibz(i  ,j-1).lt.  0.or.kabe(i  ,j-1).ge.2).and.
+     *   (ibz(i  ,j+1).lt.  0.or.kabe(i  ,j  ).ge.2))     go to 2510
+      if((ibz(i-1,j-1).lt.  0.or.kabe(i-1,j-1).ge.2).and.
+     *   (ibz(i-1,j+1).lt.  0.or.kabe(i-1,j  ).ge.2).and.
+     *   (ibz(i  ,j+1).lt.  0.or.kabe(i  ,j  ).ge.2))     go to 2520
+      if((ibz(i-1,j-1).lt.  0.or.kabe(i-1,j-1).ge.2).and.
+     *   (ibz(i  ,j-1).lt.  0.or.kabe(i  ,j-1).ge.2).and.
+     *   (ibz(i-1,j+1).lt.  0.or.kabe(i-1,j  ).ge.2))     go to 2530
+c
+      if((ibz(i-1,j-1).lt.  0.or.kabe(i-1,j-1).ge.2).and.
+     *   (ibz(i  ,j+1).lt.  0.or.kabe(i  ,j  ).ge.2))     go to 2540
+      if((ibz(i  ,j-1).lt.  0.or.kabe(i  ,j-1).ge.2).and.
+     *   (ibz(i-1,j+1).lt.  0.or.kabe(i-1,j  ).ge.2))     go to 2550
+      if((ibz(i-1,j-1).lt.  0.or.kabe(i-1,j-1).ge.2).and.
+     *   (ibz(i-1,j+1).lt.  0.or.kabe(i  ,j-1).ge.2))     go to 2560
+      if((ibz(i-1,j-1).lt.  0.or.kabe(i-1,j-1).ge.2).and.
+     *   (ibz(i  ,j-1).lt.  0.or.kabe(i  ,j-1).ge.2))     go to 2570
+      if((ibz(i-1,j+1).lt.  0.or.kabe(i-1,j  ).ge.2).and.
+     *   (ibz(i  ,j+1).lt.  0.or.kabe(i  ,j  ).ge.2))     go to 2580
+      if((ibz(i  ,j-1).lt.  0.or.kabe(i  ,j-1).ge.2).and.
+     *   (ibz(i  ,j+1).lt.  0.or.kabe(i  ,j  ).ge.2))     go to 2590
+c
+      if(ibz(i-1,j-1).lt.  0.or.kabe(i-1,j-1).ge.2)
+     *                                    v0 = ( v2 + v3 + v4 ) / 3.0
+      if(ibz(i-1,j+1).lt.  0.or.kabe(i-1,j  ).ge.2)
+     *                                    v0 = ( v1 + v3 + v4 ) / 3.0
+      if(ibz(i  ,j-1).lt.  0.or.kabe(i  ,j-1).ge.2)
+     *                                    v0 = ( v1 + v2 + v4 ) / 3.0
+      if(ibz(i  ,j+1).lt.  0.or.kabe(i  ,j  ).ge.2)
+     *                                    v0 = ( v1 + v2 + v3 ) / 3.0
+      go to 2800
+c
+ 2500 continue
+      v0 = v1
+      go to 2800
+ 2510 continue
+      v0 = v2
+      go to 2800
+ 2520 continue
+      v0 = v3
+      go to 2800
+ 2530 continue
+      v0 = v4
+      go to 2800
+ 2540 continue
+      v0 = ( v2 + v3 ) / 2.0
+      go to 2800
+ 2550 continue
+      v0 = ( v1 + v4 ) / 2.0
+      go to 2800
+ 2560 continue
+      v0 = ( v3 + v4 ) / 2.0
+      go to 2800
+ 2570 continue
+      v0 = ( v2 + v4 ) / 2.0
+      go to 2800
+ 2580 continue
+      v0 = ( v1 + v3 ) / 2.0
+      go to 2800
+ 2590 continue
+      v0 = ( v1 + v2 ) / 2.0
+c
+ 2800 continue
+c
+      return
+      end
+c -----------------------------------------------------------------------
+      subroutine u0cal(i,j,u1,u2,u3,u4,u0)
+c
+      include'bb20.inc'
+c
+      u0 = ( u1 + u2 + u3 + u4 ) / 4.0
+c
+      if((ibz(i+1,j-1).lt.  0.or.kabe(i  ,j-1).eq.1).and.
+     *   (ibz(i-1,j  ).lt.  0.or.kabe(i-1,j  ).eq.1
+     *                       .or.kabe(i-1,j  ).eq.3).and.
+     *   (ibz(i+1,j  ).lt.  0.or.kabe(i  ,j  ).eq.1
+     *                       .or.kabe(i  ,j  ).eq.3))     go to 3500
+      if((ibz(i-1,j-1).lt.  0.or.kabe(i-1,j-1).eq.1
+     *                       .or.kabe(i-1,j-1).eq.3).and.
+     *   (ibz(i-1,j  ).lt.  0.or.kabe(i-1,j  ).eq.1
+     *                       .or.kabe(i-1,j  ).eq.3).and.
+     *   (ibz(i+1,j  ).lt.  0.or.kabe(i  ,j  ).eq.1
+     *                       .or.kabe(i  ,j  ).eq.3))     go to 3510
+      if((ibz(i-1,j-1).lt.  0.or.kabe(i-1,j-1).eq.1
+     *                       .or.kabe(i-1,j-1).eq.3).and.
+     *   (ibz(i+1,j-1).lt.  0.or.kabe(i  ,j-1).eq.1).and.
+     *   (ibz(i+1,j  ).lt.  0.or.kabe(i  ,j  ).eq.1
+     *                       .or.kabe(i  ,j  ).eq.3))     go to 3520
+      if((ibz(i-1,j-1).lt.  0.or.kabe(i-1,j-1).eq.1
+     *                       .or.kabe(i-1,j-1).eq.3).and.
+     *   (ibz(i+1,j-1).lt.  0.or.kabe(i  ,j-1).eq.1).and.
+     *   (ibz(i-1,j  ).lt.  0.or.kabe(i-1,j  ).eq.1
+     *                       .or.kabe(i-1,j  ).eq.3))     go to 3530
+ 
+      if((ibz(i-1,j  ).lt.  0.or.kabe(i-1,j  ).eq.1
+     *                       .or.kabe(i-1,j  ).eq.3).and.
+     *   (ibz(i+1,j  ).lt.  0.or.kabe(i  ,j  ).eq.1
+     *                       .or.kabe(i  ,j  ).eq.3))     go to 3540
+      if((ibz(i-1,j-1).lt.  0.or.kabe(i-1,j-1).eq.1
+     *                       .or.kabe(i-1,j-1).eq.3).and.
+     *   (ibz(i+1,j-1).lt.  0.or.kabe(i  ,j-1).eq.1))     go to 3550
+      if((ibz(i-1,j-1).lt.  0.or.kabe(i-1,j-1).eq.1
+     *                       .or.kabe(i-1,j-1).eq.3).and.
+     *   (ibz(i+1,j  ).lt.  0.or.kabe(i  ,j  ).eq.1
+     *                       .or.kabe(i  ,j  ).eq.3))     go to 3560
+      if((ibz(i+1,j-1).lt.  0.or.kabe(i  ,j-1).eq.1).and.
+     *   (ibz(i-1,j  ).lt.  0.or.kabe(i-1,j  ).eq.1
+     *                       .or.kabe(i-1,j  ).eq.3))     go to 3570
+      if((ibz(i-1,j-1).lt.  0.or.kabe(i-1,j-1).eq.1
+     *                       .or.kabe(i-1,j-1).eq.3).and.
+     *   (ibz(i-1,j  ).lt.  0.or.kabe(i-1,j  ).eq.1
+     *                       .or.kabe(i-1,j  ).eq.3))     go to 3580
+      if((ibz(i+1,j-1).lt.  0.or.kabe(i  ,j-1).eq.1).and.
+     *   (ibz(i+1,j  ).lt.  0.or.kabe(i  ,j  ).eq.1
+     *                       .or.kabe(i  ,j  ).eq.3))     go to 3590
+c
+      if(ibz(i-1,j-1).lt.  0.or.kabe(i-1,j-1).eq.1
+     *                      .or.kabe(i-1,j-1).eq.3)
+     *                                    u0 = ( u2 + u3 + u4 ) / 3.0
+      if(ibz(i-1,j  ).lt.  0.or.kabe(i-1,j  ).eq.1
+     *                      .or.kabe(i-1,j  ).eq.3)
+     *                                    u0 = ( u1 + u2 + u4 ) / 3.0
+      if(ibz(i+1,j-1).lt.  0.or.kabe(i  ,j-1).eq.1)
+     *                                    u0 = ( u1 + u3 + u4 ) / 3.0
+      if(ibz(i+1,j  ).lt.  0.or.kabe(i  ,j  ).eq.1
+     *                      .or.kabe(i  ,j  ).eq.3)
+     *                                    u0 = ( u1 + u2 + u3 ) / 3.0
+      go to 3800
+c
+ 3500 continue
+      u0 = u1
+      go to 3800
+ 3510 continue
+      u0 = u2
+      go to 3800
+ 3520 continue
+      u0 = u3
+      go to 3800
+ 3530 continue
+      u0 = u4
+      go to 3800
+ 3540 continue
+      u0 = ( u1 + u2 ) / 2.0
+      go to 3800
+ 3550 continue
+      u0 = ( u3 + u4 ) / 2.0
+      go to 3800
+ 3560 continue
+      u0 = ( u3 + u2 ) / 2.0
+      go to 3800
+ 3570 continue
+      u0 = ( u1 + u4 ) / 2.0
+      go to 3800
+ 3580 continue
+      u0 = ( u2 + u4 ) / 2.0
+      go to 3800
+ 3590 continue
+      u0 = ( u1 + u3 ) / 2.0
+c
+ 3800 continue
+c
+      return
+      end
+c
+c==========================================================================================================
+c
+      subroutine  cmncal
+c                                                        bed load transport calculation (adam pr:7-12-2010)
+      include'bb20.inc'
+c
+c
+c     dt = dt2 * 2.0
+c
+      do 2000 j=2,jm0
+c     do 1000 i=2,im0
+      do 1000 i=ibc(1,j),ibc(2,j)
+c
+c============================================================= boundary
+        if(zi(i,j).lt.0.0)  go to 1000
+        if(ipp(i-1,j).gt.0.or.ipp(i,j).gt.0)  go to 3000                         
+c======================================================================
+c
+       vx(i,j) = 0.0
+       uvx(i,j) = 0.0
+       egx(i,j) = 0.0
+       do 1101  l = 1 ,idnum
+        qmb(l,i,j) = 0.0
+ 1101  continue
+c
+      if(abs(qm2(i,j)).lt.exm)  go to 3000
+      dz = zl3(i-1,j) - zl3(i,j)
+      if(abs(dz).lt.exm)  dz = 0.0
+      if(adz(i  ,j).lt.exm.and.dz.lt.0.0.and.qm2(i,j).gt.0.0) go to 3000
+      if(adz(i-1,j).lt.exm.and.dz.gt.0.0.and.qm2(i,j).lt.0.0) go to 3000
+c 
+      if(qm2(i,j).lt.0.0)  ii = i
+      if(qm2(i,j).gt.0.0)  ii = i - 1
+c
+      if(dmix(ii,j).lt.exm)  go to 3000
+c
+      h0 =  ( hh3(i,j) + hh3(i-1,j) ) / 2.0
+      if(h0.lt.eps)  go to 3000
+      u0 = qm2(i,j) / h0
+c
+      h1 = hh3(i-1,j) + hh3(i-1,j-1)
+      v1= 0.0
+      if(h1.ge.eps)  v1 = 2.0 * qn2(i-1,j) / h1
+c
+      h2 = hh3(i-1,j+1) + hh3(i-1,j)
+      v2 = 0.0
+      if(h2.ge.eps)  v2 = 2.0 * qn2(i-1,j+1) / h2
+c
+      h3 = hh3(i,j) + hh3(i,j-1)
+      v3 = 0.0
+      if(h3.ge.eps)  v3 = 2.0 * qn2(i,j) / h3
+c
+      h4 = hh3(i,j+1) + hh3(i,j)
+      v4 = 0.0 
+      if(h4.ge.eps)  v4 = 2.0 * qn2(i,j+1) / h4
+c
+      call v0cal(i,j,v1,v2,v3,v4,v0)
+      uv =  u0 * u0 + v0 * v0
+      vx(i,j) = v0
+      uvx(i,j) = sqrt( uv )
+c
+      egx(i,j) =  uv * sodo * sodo / h0**(4./3.)
+      uv2 = u0 / uvx(i,j)
+      heg = egx(i,j) * h0 / ss1
+      ust = sqrt( egx(i,j) * h0 * 9.8 )
+      uust = uvx(i,j) / ust
+c
+      do 4000 l = 1 , idnum
+      qmb(l,i,j) = 0.0
+      tast0 = heg /  gsd(l) 
+      aa = gsd(l) / dm(ii,j)
+      if(aa.lt.0.4)  tastc = 0.85 * tastcm / aa 
+      if(aa.ge.0.4)  then
+c        a1 = dlog10( 19.0 ) / dlog10( 19.0 * aa )
+         a1 = 1.27875360095  / dlog10( 19.0 * aa )
+         tastc = a1 * a1 * tastcm
+      end if
+c
+      if(tast0.lt.tastc)  go to  4000
+c                                                            call sed transport formula (adam pr:7-12-2010)
+      a1 = fbed(tast0,tastc)
+c
+      a2 = a1 * sqrt( ss1 * 9.8 * gsd(l)**3 )
+      df = dzd1(l,ii,j) / dmix(ii,j)
+c                                                            bed load transport part (adam pr:7-12-2010)
+      qbb = a2 * df
+c                                                            suspended load part (adam pr:7-12-2010)
+      qbs = 0.0
+c                                                            ild switch is set to zero, suspended sed not allowed to be considered (adam pr:7-12-2010)
+      if(ild.eq.0) go to 4010
+c
+      df = df * 100.0
+      wust = w0(l) / ust
+c
+      dst = 0.5 / wust * exp( - wust * wust )
+      cb = 5.55 * df * dst**1.61
+      call pcal(wust,uust,p)
+      qbs = qm2(i,j) * cb * p * 1.0e-6
+c                                                            qm2: discharge per unit weight on x (adam pr:7-12-2010)
+ 4010 continue
+      qb = qbb + qbs/uv2
+c                                                            projected sed transport to x axis (adam pr:7-12-2010)
+      qmb(l,i,j) = qb * uv2
+c     qmbt = qmbt + qmb(l,i,j)
+c     qmbt(i,j) = qmbt(i,j) + qmb(l,i,j)
+ 4000 continue
+c
+c
+ 3000 continue
+       if(ipp(i,j-1).gt.0.or.ipp(i,j).gt.0)  go to 1000                         
+       uy(i,j) = 0.0
+       uvy(i,j) = 0.0
+       egy(i,j) = 0.0
+       do 3101  l = 1 ,idnum
+        qnb(l,i,j) = 0.0
+ 3101  continue
+c
+      if(abs(qn2(i,j)).lt.exm)  go to 1000
+      dz = zl3(i,j-1) - zl3(i,j)
+      if(abs(dz).lt.exm)  dz = 0.0
+      if(adz(i,j  ).lt.exm.and.dz.lt.0.0.and.qn2(i,j).gt.0.0) go to 1000 
+      if(adz(i,j-1).lt.exm.and.dz.gt.0.0.and.qn2(i,j).lt.0.0) go to 1000 
+c
+      if(qn2(i,j).lt.0.0)  jj = j
+      if(qn2(i,j).gt.0.0)  jj = j - 1
+c
+      if(dmix(i,jj).lt.exm)  go to 1000
+c
+      h0 = ( hh3(i,j) + hh3(i,j-1) ) / 2.0
+      if(h0.lt.eps)  go to 1000
+      v0 =  qn2(i,j) / h0
+c
+      h1 = hh3(i,j-1) + hh3(i-1,j-1)
+      u1= 0.0
+      if(h1.ge.eps)  u1 = 2.0 * qm2(i,j-1) / h1
+c
+      h2 = hh3(i+1,j-1) + hh3(i,j-1)
+      u2 = 0.0
+      if(h2.ge.eps)  u2 = 2.0 * qm2(i+1,j-1) / h2
+c
+      h3 = hh3(i,j) + hh3(i-1,j)
+      u3 = 0.0
+      if(h3.ge.eps)  u3 = 2.0 * qm2(i,j) / h3
+c
+      h4 = hh3(i+1,j) + hh3(i,j)
+      u4 = 0.0
+      if(h4.ge.eps)  u4 = 2.0 * qm2(i+1,j) / h4
+c
+      call u0cal(i,j,u1,u2,u3,u4,u0)
+      uv =  u0 * u0 + v0 * v0
+      uy(i,j) = u0
+c     vy(i,j) = v0
+      uvy(i,j) = sqrt( uv )
+c
+      egy(i,j) =  uv * sodo * sodo /  h0**(4./3.)
+      uv2 = v0 / sqrt( uv )
+      heg = egy(i,j) * h0 / ss1
+      ust = sqrt( egy(i,j) * h0 * 9.8 )
+      uust = uvy(i,j) / ust
+c
+      do 6000 l = 1 , idnum
+      qnb(l,i,j) = 0.0
+c                                                         tau star 0 = h * Sf / ( (rhos-rhow)/rhow * d) (adam pr:7-12-2010)
+      tast0 = heg / gsd(l) 
+      aa = gsd(l) / dm(i,jj)
+      if(aa.lt.0.4)  tastc = 0.85 * tastcm / aa 
+      if(aa.ge.0.4)  then
+c        a1 = dlog10( 19.0 ) / dlog10( 19.0 * aa )
+         a1 = 1.27875360095  / dlog10( 19.0 * aa )
+         tastc = a1 * a1 * tastcm
+      end if
+c                                                         tau star critical for each grain size is obtained (what formula ?) (adam pr:7-12-2010)
+      if(tast0.lt.tastc)  go to  6000
+c
+      a1 = fbed(tast0,tastc)
+c
+      a2 = a1 * sqrt( ss1 * 9.8 * gsd(l)**3 )
+      df = dzd1(l,i,jj) / dmix(i,jj)
+c                                                         bed load transport rate (adam pr:7-12-2010)
+      qbb = a2 * df
+c
+      qbs = 0.0
+      if(ild.eq.0) go to 6010
+c
+      df = df * 100.0
+      wust = w0(l) / ust
+c
+      dst = 0.5 / wust * exp( - wust * wust )
+      cb = 5.55 * df * dst**1.61
+      call pcal(wust,uust,p)
+      qbs = qn2(i,j) * cb * p * 1.0e-6
+c
+ 6010 continue
+      qb = qbb + qbs/uv2
+c
+      qnb(l,i,j) = qb * uv2
+c     qnbt = qnbt + qnb(l,i,j)
+c     qnbt(i,j) = qnbt(i,j) + qnb(l,i,j)
+ 6000 continue
+c
+c
+ 1000 continue
+ 2000 continue
+c
+      return
+      end
+c -------------------------------------------------------
+      subroutine  dmcal
+c                                                                     mean grain diameter calculation (adam pr:7-12-2010)
+      include'bb20.inc'
+c
+c
+      do 1000 j = 2 ,jm0
+c     do 2000 i = 2 ,im0
+        do 2000 i=ibc(1,j),ibc(2,j)
+c
+          if(zi(i,j).lt.0.0)  go to 2000
+          if(ipp(i,j).gt.0)  go to 2000
+c
+          aa = 0.0
+          do 3000 l = 1 ,idnum
+            if(dmix(i,j).le.0.0)  go to 3000
+            aa = aa + gsd(l) * dzd1(l,i,j) / dmix(i,j)
+ 3000     continue
+c
+          dm(i,j) = aa
+c
+ 2000   continue
+ 1000 continue
+c
+      return
+      end
+c --------------------------------------------------------
+      subroutine  depcal(dt)
+c                                                                      water depth change calculation (adam pr:7-12-2010)
+      include'bb20.inc'
+c
+c
+      dt2 = 2.0 * dt
+c
+      do 3000 j=2,jm0
+c     do 1000 i=2,im0
+      do 1000 i=ibc(1,j),ibc(2,j)
+c
+       if(zi(i,j).lt.0.0)  go to 1000
+       if(ipp(i,j).gt.0)  go to 1000
+c
+       if(qm2(i,j).eq.0.0.and.qm2(i+1,j).eq.0.0.and.qn2(i,j).eq.0.0
+     * .and.qn2(i,j+1).eq.0.0.and.hh1(i,j).le.0.0)  go to 1000
+c
+      if(hh1(i,j).lt.eps) then
+       if(qm2(i,j)  .lt.0.0)  qm2(i,j)   = 0.0
+       if(qm2(i+1,j).gt.0.0)  qm2(i+1,j) = 0.0
+       if(qn2(i,j)  .lt.0.0)  qn2(i,j)   = 0.0
+       if(qn2(i,j+1).gt.0.0)  qn2(i,j+1) = 0.0
+       go to 1000
+      end if
+c
+      a2=0.0
+      if(qm2(i  ,j  ).lt.0.)a2=a2-qm2(i  ,j  )*dly
+      if(qm2(i+1,j  ).gt.0.)a2=a2+qm2(i+1,j  )*dly
+      if(qn2(i  ,j  ).lt.0.)a2=a2-qn2(i  ,j  )*dlx
+      if(qn2(i  ,j+1).gt.0.)a2=a2+qn2(i  ,j+1)*dlx
+c
+      wvl=hh1(i,j)*ddxy
+c     qwinp=a1*dt2
+      qwout=a2*dt2
+c
+      if(qwout.le.0.0)goto 2500
+      if(qwout.le.wvl)go to 2500
+      aa=wvl/qwout
+      if(qm2(i  ,j  ).lt.0.)qm2(i  ,j  )=qm2(i  ,j  )*aa
+      if(qm2(i+1,j  ).gt.0.)qm2(i+1,j  )=qm2(i+1,j  )*aa
+      if(qn2(i  ,j  ).lt.0.)qn2(i  ,j  )=qn2(i  ,j  )*aa
+      if(qn2(i  ,j+1).gt.0.)qn2(i  ,j+1)=qn2(i  ,j+1)*aa
+ 2500 continue
+c
+ 1000 continue
+ 3000 continue
+c
+      do 3010 j=2,jm0
+c     do 1010 i=2,im0
+      do 1010 i=ibc(1,j),ibc(2,j)
+c
+       if(zi(i,j).lt.0.0)  go to 1010
+       if(ipp(i,j).gt.0)  go to 1010
+c
+       if(qm2(i,j).eq.0.0.and.qm2(i+1,j).eq.0.0.and.qn2(i,j).eq.0.0
+     * .and.qn2(i,j+1).eq.0.0.and.hh1(i,j).le.0.0)  go to 1010
+c
+      dh = (( qm2(i,j) - qm2(i+1,j) ) * dly +
+     *      ( qn2(i,j) - qn2(i,j+1) ) * dlx ) * dt2 / ddxy 
+c
+      h0 = hh1(i,j) + dh
+      if(h0.ge.exm)  go to 2000
+c
+      h0=0.0
+c
+ 2000 continue
+      hh3(i,j) = h0
+ 1010 continue
+ 3010 continue
+c
+      return
+      end
+c --------------------------------------------------------------------
+      subroutine  crect2(dt)
+c
+      include'bb20.inc'
+c
+c
+      dt2 = dt * 2.0
+c
+      do 2010 j=2,jm0
+c     do 1010 i=2,im0
+      do 1010 i=ibc(1,j),ibc(2,j)
+c                                                          filtering for land/dry and boundary nodes (adam pr:7-12-2010)
+       if(zi(i,j).lt.0.0)  go to 1010
+       if(ipp(i,j).gt.0.or.ipp(i,j-1).gt.0.or.ipp(i-1,j).gt.0)
+     *                     go to 1010
+c                                                          calculation is only for those belong to internal nodes (adam pr:7-12-2010)
+       qmba = 0.0
+       qnba = 0.0
+       do 3030 l=1,idnum
+       qmba = qmba + qmb(l,i,j)
+       qnba = qnba + qnb(l,i,j)
+ 3030 continue
+c                                                          cm: bed load transport / discharge = "concentration" (adam pr:7-12-2010)
+      if(abs(qm2(i,j)).gt.exm)  then
+        cm = qmba /  qm2(i,j)
+        if(cm.lt.0.45)  go to 5000
+        aa = 0.45 / cm
+      else 
+        aa = 0.0
+      end if
+c                                                          seems to 0.45 scalling and "flooring" for bed load transport (adam pr:7-12-2010)
+c                                                          if cm less than 0.45 then bed load is set to zero ! (adam pr:7-12-2010)
+      do 4400 l = 1 , idnum
+       qmb(l,i,j) = qmb(l,i,j) * aa
+ 4400 continue
+c
+ 5000 continue
+      if(abs(qn2(i,j)).gt.exm)  then
+        cn = qnba /  qn2(i,j)
+        if(cn.lt.0.45)  go to 1010
+        aa = 0.45 / cn
+      else
+        aa = 0.0
+      end if
+c
+      do 6400 l = 1 , idnum
+       qnb(l,i,j) = qnb(l,i,j) * aa
+ 6400 continue
+c
+ 1010 continue
+ 2010 continue
+c
+c
+      do 2000 j=2,jm0
+c     do 1000 i=2,im0
+      do 1000 i=ibc(1,j),ibc(2,j)
+c
+       if(zi(i,j).lt.0.0)  go to 1000
+ccc       if(ipp(i,j).gt.0.or.ipp(i,j-1).gt.0.or.ipp(i-1,j).gt.0)
+ccc     *                     go to 1000
+       if(ipp(i,j).gt.0) go to 1000
+c
+       if(qm2(i,j).eq.0.0.and.qm2(i+1,j).eq.0.0.and.qn2(i,j).eq.0.0
+     * .and.qn2(i,j+1).eq.0.0.and.hh3(i,j).le.0.0)  go to 1000
+c
+c     qmbt(i,j) = 0.0
+c     qnbt(i,j) = 0.0
+c
+      do 3000 l = 1 , idnum
+c
+       q1=qmb(l,i  ,j  )+qmbs1(l,i  ,j  )
+       q2=qmb(l,i+1,j  )+qmbs1(l,i+1,j  )
+       q3=qnb(l,i  ,j  )+qnbs1(l,i  ,j  )
+       q4=qnb(l,i  ,j+1)+qnbs1(l,i  ,j+1)
+       a2=0.
+       if(q1.lt.0.)    a2=a2-q1*dly
+       if(q2.gt.0.)    a2=a2+q2*dly
+       if(q3.lt.0.)    a2=a2-q3*dlx
+       if(q4.gt.0.)    a2=a2+q4*dlx
+c
+       qsout = a2 * dt2
+       if(qsout.le.0.0) go to 3010
+       aeqsv =  dzd1(l,i,j) * ddxyc
+       if(qsout.le.aeqsv) go to 3010
+       aa = aeqsv / qsout
+c
+       if(q1.lt.0.) then
+c      if(qm2(i  ,j  ).lt.0.) then
+          qmb(l,i  ,j  )=qmb(l,i  ,j  )*aa
+          qmbs1(l,i  ,j  )=qmbs1(l,i  ,j  )*aa
+       end if
+       if(q2.gt.0.) then
+c      if(qm2(i+1,j  ).gt.0.) then
+          qmb(l,i+1,j  )=qmb(l,i+1,j  )*aa
+          qmbs1(l,i+1,j  )=qmbs1(l,i+1,j  )*aa
+       end if
+       if(q3.lt.0.) then
+c      if(qn2(i  ,j  ).lt.0.) then
+          qnb(l,i  ,j  )=qnb(l,i  ,j  )*aa
+          qnbs1(l,i  ,j  )=qnbs1(l,i  ,j  )*aa
+       end if
+       if(q4.gt.0.) then
+c      if(qn2(i  ,j+1).gt.0.) then
+          qnb(l,i  ,j+1)=qnb(l,i  ,j+1)*aa
+          qnbs1(l,i  ,j+1)=qnbs1(l,i  ,j+1)*aa
+       end if
+ 3010 continue
+c
+       b2=0.
+       if(qmbs2(l,i  ,j  ).lt.0.) b2=b2-qmbs2(l,i  ,j  )*dly
+       if(qmbs2(l,i+1,j  ).gt.0.) b2=b2+qmbs2(l,i+1,j  )*dly
+       if(qnbs2(l,i  ,j  ).lt.0.) b2=b2-qnbs2(l,i  ,j  )*dlx
+       if(qnbs2(l,i  ,j+1).gt.0.) b2=b2+qnbs2(l,i  ,j+1)*dlx
+c
+       qsout = b2 * dt2
+       if(qsout.le.0.0) go to 3000
+       aeqsv =  dzd2(l,i,j) * ddxyc
+       if(qsout.le.aeqsv) go to 3000
+       bb = aeqsv / qsout
+c
+       if(qmbs2(l,i  ,j  ).lt.0.) qmbs2(l,i  ,j  )=qmbs2(l,i  ,j  )*bb
+       if(qmbs2(l,i+1,j  ).gt.0.) qmbs2(l,i+1,j  )=qmbs2(l,i+1,j  )*bb
+       if(qnbs2(l,i  ,j  ).lt.0.) qnbs2(l,i  ,j  )=qnbs2(l,i  ,j  )*bb
+       if(qnbs2(l,i  ,j+1).gt.0.) qnbs2(l,i  ,j+1)=qnbs2(l,i  ,j+1)*bb
+c
+c
+ 3000 continue
+c
+ 1000 continue
+ 2000 continue
+c
+      return
+      end
+c
+c===============================================================================================================
+c
+      subroutine  bedcal(dt)
+c                                                  bed change calculation (adam pr:7-12-2010)
+      include'bb20.inc'
+c
+c
+      dimension  dz(25)
+c
+      dt2 = dt * 2.0
+      dtdx = dlx * dt2
+      dtdy = dly * dt2 
+c
+      do 920 j=1,jmy
+      do 910 i=1,imx
+      qmbt(i,j) = 0.0
+      qnbt(i,j) = 0.0
+  910 continue
+  920 continue
+c
+      do 2000 j=2,jm0
+c     do 1000 i=2,im0
+      do 1000 i=ibc(1,j),ibc(2,j)
+c
+       if(zi(i,j).lt.0.0)  go to 1000
+       if(ipp(i,j).gt.0)  go to 1000
+c
+       if(qm2(i,j).eq.0.0.and.qm2(i+1,j).eq.0.0.and.qn2(i,j).eq.0.0
+     * .and.qn2(i,j+1).eq.0.0.and.hh3(i,j).le.0.0)  go to 1000
+c
+      dzt = 0.0
+      dzt2 = 0.0
+c
+      do 3000 l = 1 , idnum
+c
+       q1 = 0.0
+       q2 = 0.0
+       q3 = 0.0
+       q4 = 0.0
+c
+       a3 = 0.0
+       if(qm2(i  ,j  ).ne.0.)  then   
+          q1 = ( qmb(l,i  ,j  )+qmbs1(l,i  ,j  ) ) * dtdy
+          if(qmbs2(l,i  ,j  ).gt.0.) q1=q1+qmbs2(l,i  ,j  )*dtdy
+          if(qmbs2(l,i  ,j  ).lt.0.) a3=a3-qmbs2(l,i  ,j  )*dly
+       end if
+       if(qm2(i+1,j  ).ne.0.)  then
+          q2 = ( qmb(l,i+1,j  )+qmbs1(l,i+1,j  ) ) * dtdy
+          if(qmbs2(l,i+1,j  ).lt.0.) q2=q2+qmbs2(l,i+1,j  )*dtdy
+          if(qmbs2(l,i+1,j  ).gt.0.) a3=a3+qmbs2(l,i+1,j  )*dly
+       end if
+       if(qn2(i  ,j  ).ne.0.)  then
+          q3 = ( qnb(l,i  ,j  )+qnbs1(l,i  ,j  ) ) * dtdx
+          if(qnbs2(l,i  ,j  ).gt.0.) q3=q3+qnbs2(l,i  ,j  )*dtdx
+          if(qnbs2(l,i  ,j  ).lt.0.) a3=a3-qnbs2(l,i  ,j  )*dlx
+       end if
+       if(qn2(i  ,j+1).ne.0.)  then
+          q4 = ( qnb(l,i  ,j+1)+qnbs1(l,i  ,j+1) ) * dtdx
+          if(qnbs2(l,i  ,j+1).lt.0.) q4=q4+qnbs2(l,i  ,j+1)*dtdx
+          if(qnbs2(l,i  ,j+1).gt.0.) a3=a3+qnbs2(l,i  ,j+1)*dlx
+       end if
+c                                                                    dz(l): dz from fraction (grain diam.) (adam pr:7-12-2010)
+       dz(l) = ( q1 - q2 + q3 - q4 ) / ddxyc
+c      qsinp=a1*dt2
+c      qsout=a2*dt2
+c      dz(l)=(qsinp-qsout)/ddxyc
+       if(dz(l).lt.exm.and.dz(l).gt.-exm)  dz(l) = 0.0
+c                                                                    dzt: total dz (adam pr:7-12-2010)
+       dzt = dzt + dz(l)
+       dz2 = a3 * dt2 / ddxyc
+       dzd2(l,i,j) = dzd2(l,i,j) - dz2
+       dzt2 = dzt2 + dz2
+c
+c      qmbt = qmbt + qmb(l,i,j)+qmbs1(l,i,j)+qmbs2(l,i,j) 
+c      qnbt = qnbt + qnb(l,i,j)+qnbs1(l,i,j)+qnbs2(l,i,j)
+      qmbt(i,j) = qmbt(i,j) + qmb(l,i,j)+qmbs1(l,i,j)+qmbs2(l,i,j) 
+      qnbt(i,j) = qnbt(i,j) + qnb(l,i,j)+qnbs1(l,i,j)+qnbs2(l,i,j)
+      qmbdt(l,i,j) = qmbdt(l,i,j) 
+     *      +(qmb(l,i,j) + qmbs1(l,i,j) + qmbs2(l,i,j) )* dtdy
+      qnbdt(l,i,j) = qnbdt(l,i,j)
+     *      +(qnb(l,i,j) + qnbs1(l,i,j) + qnbs2(l,i,j) )* dtdx
+ 3000 continue
+c
+      ddz2(i,j) = ddz2(i,j) - dzt2
+c
+       if(dzt.gt. exm)  call  case1(i,j,dz,dzt)
+       if(dzt.lt.-exm)  call  case2(i,j,dz,dzt)
+c
+       zl3(i,j) = zl1(i,j) + dzt - dzt2
+c      if(zl3(i,j).lt.zdl(i,j)-eps)  call calerr(dt1,dt,'zl3-')
+c
+c      if(abs(qm2(i,j)).gt.exm)  cm(i,j) = qmbt(i,j) / qm2(i,j)
+c      if(abs(qn2(i,j)).gt.exm)  cn(i,j) = qnbt(i,j) / qn2(i,j)
+c
+       qmbtt(i,j) = qmbtt(i,j) + qmbt(i,j) * dtdy
+       qnbtt(i,j) = qnbtt(i,j) + qnbt(i,j) * dtdx
+       qmt(i,j) = qmt(i,j) + qm2(i,j) * dtdy
+       qnt(i,j) = qnt(i,j) + qn2(i,j) * dtdx
+c
+c      qmbtt(i,j) = qmbtt(i,j) + qmbt(i,j) * dtdy
+c      qnbtt(i,j) = qnbtt(i,j) + qnbt(i,j) * dtdx
+c
+ 1000 continue
+ 2000 continue
+c
+      return
+      end
+      subroutine  case1(i,j,dz,dzt)
+c
+      include'bb20.inc'
+c
+c                                                              5 = idnum, since idnum is up to 5 (adam pr:7-12-2010)
+c                                                              idnum: number of grain size or fraction (adam pr:7-12-2010)
+      dimension  dz(25)
+c
+      dz1 = dmix(i,j) + dzt
+      dz2 = dz1 - dmix0
+      if(dz1.lt.dmix0)  go to 2000
+      if(ddz2(i,j).le.0.0.and.dz2.lt.dcng)   go to 2000
+c                                                              dmix0: thickness of a (possibility) change layer (m) (adam pr: 7-12-2010)
+      dmix(i,j) = dmix0
+      ddz2(i,j) = ddz2(i,j) + dz2
+       a1 = dmix0 / dz1
+      do 1000 l = 1 ,idnum
+       a2 = dzd1(l,i,j) + dz(l)
+       dzd1(l,i,j) = a1 * a2
+       dzd2(l,i,j) = dzd2(l,i,j) + ( 1.0 - a1 ) * a2
+ 1000 continue
+       go to 1100
+c
+ 2000 continue
+      dmix(i,j) = dmix(i,j) + dzt
+      ddz2(i,j) = 0.0
+      do 3000 l = 1 ,idnum
+       dzd1(l,i,j) = dzd1(l,i,j) + dz(l)
+       dzd2(l,i,j) = 0.0
+ 3000 continue
+c
+ 1100 continue
+      return
+      end
+      subroutine  case2(i,j,dz,dzt)
+c
+      include'bb20.inc'
+c
+c
+      dimension  dz(25)
+c
+      dz1 = dmix(i,j)
+      dz2 = ddz2(i,j) + dzt
+      if(dz1.lt.dmix0)  go to 2000
+      if(dz2.lt.dcng)   go to 2000
+c
+      a1 = - dzt / ddz2(i,j)
+      do 1000 l = 1 ,idnum
+       dzd1(l,i,j) = dzd1(l,i,j) + dz(l) + dzd2(l,i,j) * a1
+       dzd2(l,i,j) = dzd2(l,i,j) * ( 1.0 - a1 )
+ 1000 continue
+       dmix(i,j) = dmix0
+       ddz2(i,j) = ddz2(i,j) + dzt
+       go to 1100
+c
+ 2000 continue
+      dz1 = 0.0
+      do 3000 l = 1 ,idnum
+       dzd1(l,i,j) = dzd1(l,i,j) + dz(l) + dzd2(l,i,j)
+       if(dabs(dzd1(l,i,j)).lt.exm) dzd1(l,i,j)=0.d0
+       dzd2(l,i,j) = 0.0
+       dz1 = dz1 + dzd1(l,i,j)
+ 3000 continue
+c
+       dmix(i,j) = dz1
+       ddz2(i,j) = 0.0
+c
+ 1100 continue
+      if(dmix(i,j).lt.0.0)  dmix(i,j) = 0.0
+      return
+      end
+c
+c===========================================================================================================
+c
+      subroutine  qbscal
+c                                                               calculation of sediment transport based on ashida & takahashi formula ? (adam pr:7-12-2010)
+      include'bb20.inc'
+c
+c
+c
+      do 2000 j = 2 , jm0
+c     do 1000 i = 2 , im0
+      do 1000 i = ibc(1,j) , ibc(2,j)
+c
+      if(zi(i,j).lt.0.0)  go to 1000
+c
+c      qmbs(i,j) = 0.0
+c      qnbs(i,j) = 0.0
+      do 1010 l = 1 ,idnum
+       qmbs1(l,i,j) = 0.0
+       qmbs2(l,i,j) = 0.0
+       qnbs1(l,i,j) = 0.0
+       qnbs2(l,i,j) = 0.0
+ 1010 continue
+c
+      if(ipp(i,j).gt.0.or.ipp(i-1,j).gt.0)  go to 3000
+c
+      if(abs(qm2(i,j)).lt.exm)  go to 3000
+      if(kabe(i-1,j).eq.-1.or.kabe(i-1,j).eq.-3)  go to 3000
+c
+      h0 = ( hh3(i-1,j) + hh3(i,j) ) / 2.0
+      if(h0.lt.eps)  go to 3000
+c 
+      dz = zl3(i-1,j) - zl3(i,j)
+      dz0 = abs( dz ) 
+      if(dz0.lt.eps)  go to 3000
+c
+      if(dz.gt.0.0) then
+c         i1 = i
+          i2 = i -1
+        else
+c         i1 = i - 1
+          i2 = i
+      end if
+c     if(hh3(i1,j).lt.eps)   go to 3000 
+      if(dmix(i2,j).lt.exm)  go to 3000
+c
+      ddz0 = dz0 - dmix(i2,j)
+      if(ddz0.gt.ddz2(i2,j))  ddz0 = ddz2(i2,j)
+      if(ddz0.lt.eps)  ddz0 = 0.0
+      ddz1 = ddz0 + dmix(i2,j)
+c                                                                  eps: min water depth to decide stopping movement (adam pr:7-12-2010)
+      if(ddz0.ge.eps)  then
+       dz2 =  ddz0 / ddz2(i2,j)
+       dmm = 0.0
+       do 1020 l = 1, idnum
+        dmm = dmm+(dzd2(l,i2,j)*dz2+dzd1(l,i2,j))/ddz1 * gsd(l)
+ 1020 continue
+c                                                                  
+      else
+       dmm = dm(i2,j)
+      end if
+c
+      if(dmm.le.0.0)  go to 3000  
+c                                                                  see what formula ! Takahashi ? (adam pr: 5-12-2010)
+c                                                                  fai : tan of grain inter-friction angle  (adam pr: 5-12-2010)
+c                                                                  tan1 : tan of bank slope (adam pr: 5-12-2010)
+c                                                                  cos1 : cos of bank slope (adam pr: 5-12-2010)
+c                                                                  tastcm : tau star critical coeff inputted (adam pr:7-12-2010)
+      tastsc = tastcm * cos1 * sqrt(1.0 - ( tan1 / fai )**2 )
+c
+      usta2 =  9.8 * h0 * egx(i,j)
+      tast  =  usta2 / ss1 / dmm / 9.8
+      tasts  = 0.5 * tast
+      if(tasts.lt.tastsc)  go to 3000
+c                                                                  qmbs other sed transport ? Similar to Ashida-Takahashi qb ? (adam pr:7-12-2010)
+      a1 = 0.01 * sqrt( tast ) * ( 1.0 - tastsc / tasts ) ** 3 
+      qbss = a1 * sqrt( usta2 ) * dz / sin1
+c     qmbs(i,j) = qbss * abs( vx(i,j) ) / uvx(i,j)
+      qmbs = qbss * abs( vx(i,j) ) / uvx(i,j)
+c
+      if(ddz0.ge.eps)  then
+c
+      aa =  ddz0 / dz0
+      do 1030 l = 1,idnum
+c      qmbs1(l,i,j) = qmbs(i,j) * dzd1(l,i2,j) / dz0
+c      qmbs2(l,i,j) = qmbs(i,j) * dzd2(l,i2,j) / ddz2(i2,j) * aa
+       qmbs1(l,i,j) = qmbs * dzd1(l,i2,j) / dz0
+       qmbs2(l,i,j) = qmbs * dzd2(l,i2,j) / ddz2(i2,j) * aa
+ 1030 continue
+c
+      else
+c
+      do 1040 l = 1,idnum
+       qmbs1(l,i,j) = qmbs * dzd1(l,i2,j) / dmix(i2,j)
+c      qmbs1(l,i,j) = qmbs(i,j) * dzd1(l,i2,j) / dmix(i2,j)
+       qmbs2(l,i,j) = 0.0
+ 1040 continue
+      end if
+c
+ 3000 continue
+c
+      if(ipp(i,j).gt.0.or.ipp(i,j-1).gt.0)  go to 1000
+      if(abs(qn2(i,j)).lt.exm)  go to 1000
+      if(kabe(i,j-1).le.-2)  go to 1000
+c
+      h0 = ( hh3(i,j-1) + hh3(i,j) ) / 2.0
+      if(h0.lt.eps)  go to 1000
+c 
+      dz = zl3(i,j-1) - zl3(i,j)
+      dz0 = abs( dz ) 
+      if(dz0.lt.eps)  go to 1000
+c
+      if(dz.gt.0.0) then
+c         j1 = j
+          j2 = j -1
+        else
+c         j1 = j - 1
+          j2 = j
+      end if
+c     if(hh3(i,j1).lt.eps)   go to 1000 
+      if(dmix(i,j2).lt.exm)  go to 1000
+c
+      ddz0 = dz0 - dmix(i,j2)
+      if(ddz0.gt.ddz2(i,j2))  ddz0 = ddz2(i,j2)
+      if(ddz0.lt.eps)  ddz0 = 0.0
+      ddz1 = ddz0 + dmix(i,j2)
+c
+      if(ddz0.ge.eps)  then
+       dz2 = ddz0 / ddz2(i,j2)
+       dmm = 0.0
+       do 2020 l = 1, idnum
+       dmm = dmm+(dzd2(l,i,j2)*dz2+dzd1(l,i,j2))/ddz1 * gsd(l)
+ 2020 continue
+c
+      else
+       dmm = dm(i,j2)
+      end if 
+c
+      if(dmm.le.0.0)  go to 1000
+c  
+      tastsc = tastcm * cos1 * sqrt(1.0 - ( tan1 / fai )**2 )
+c
+      usta2 =  9.8 * h0 * egy(i,j) 
+      tast  =  usta2 / ss1 / dmm / 9.8
+      tasts  = 0.5 * tast
+      if(tasts.lt.tastsc)  go to 1000
+      a1 = 0.01 * sqrt( tast ) * ( 1.0 - tastsc / tasts ) ** 3 
+      qbss = a1 * sqrt( usta2 ) * dz / sin1
+      qnbs = qbss * abs( uy(i,j) )  / uvy(i,j)
+c     qnbs(i,j) = qbss * abs( uy(i,j) )  / uvy(i,j)
+c
+      if(ddz0.ge.eps)  then
+c
+      aa =  ddz0 / dz0
+      do 2030 l = 1,idnum
+       qnbs1(l,i,j) = qnbs * dzd1(l,i,j2) / dz0
+       qnbs2(l,i,j) = qnbs * dzd2(l,i,j2) / ddz2(i,j2) * aa
+c      qnbs1(l,i,j) = qnbs(i,j) * dzd1(l,i,j2) / dz0
+c      qnbs2(l,i,j) = qnbs(i,j) * dzd2(l,i,j2) / ddz2(i,j2) * aa
+ 2030 continue
+c
+      else
+c
+      do 2040 l = 1,idnum
+       qnbs1(l,i,j) = qnbs * dzd1(l,i,j2) / dmix(i,j2)
+c      qnbs1(l,i,j) = qnbs(i,j) * dzd1(l,i,j2) / dmix(i,j2)
+       qnbs2(l,i,j) = 0.0
+ 2040 continue
+      end if
+c
+ 1000 continue
+ 2000 continue
+c
+      return
+      end
+      subroutine  pcal(wust,uust,p)
+      implicit real*8 (a-h,o-z)
+c
+      pst(x) =  ( 1.0 + ( 1.0 + dlog( x ) ) / 0.4 / uust )
+     *         * dexp( - 6.0 * wust * x / 0.4 )
+c
+c     n2 = 2 * n
+      n2 = 10
+c     h = 1.0 / float( n2 )
+      h = 0.1
+c
+      ds1 = 0.0
+      ds2 = 0.0
+c
+      do 1000 m = 1 , n2-1
+        isw = mod(m,2)
+        x = h * float( m )
+        if(isw.eq.0)  then
+          ds2 = ds2 + pst( x )
+        else
+          ds1 = ds1 + pst( x )
+        end if
+ 1000 continue
+c
+      c1 = 0.01
+      c2 = 1.0
+c
+      p = h * ( pst( c1) + 4.0 * ds1 + 2.0 * ds2 + pst( c2) ) / 3.0
+c
+      return
+      end
+c
+c===================================================================================================================
+c
+      subroutine  maxcal
+c                                                    maximum values calculation
+      include'bb20.inc'
+c
+c
+      do 1000 j = 2 ,jm0
+c     do 2000 i = 2 ,im0
+      do 2000 i=ibc(1,j),ibc(2,j)
+c
+      if(zi(i,j).lt.0.0)  go to 2000
+c     if(ipp(i,j).gt.0)  go to 2000
+c
+      hh = hh3(i,j) + zl3(i,j) - zi(i,j)
+      if(hh.gt.hmax(i,j))  hmax(i,j) = hh
+c
+      qx = ( qmbt(i,j) + qmbt(i+1,j) ) / 2.0
+      qy = ( qnbt(i,j) + qnbt(i,j+1) ) / 2.0
+      qb = sqrt( qx*qx + qy*qy )
+      if(qb.gt.cmax(i,j))  cmax(i,j) = qb
+c
+c
+      if(hh3(i,j).lt.exm)  go to 2000
+c
+      qx = ( qm2(i,j) + qm2(i+1,j) ) / 2.0
+      qy = ( qn2(i,j) + qn2(i,j+1) ) / 2.0
+c
+      vvx = qx / hh3(i,j)
+      vvy = qy / hh3(i,j)
+c
+      qv = sqrt( qx * qx + qy * qy )    
+      vv = sqrt( vvx*vvx + vvy*vvy )
+c
+      if(qv.gt.qmax(i,j))   then
+         qmax(i,j) = qv
+         qxm(i,j) = qx
+         qym(i,j) = qy
+      end if
+c
+      fm = roh * qv * qv / hh3(i,j) / 9.8
+      if(fm.gt.fmax(i,j))  fmax(i,j) = fm 
+c
+      vmax = sqrt( vxm(i,j) * vxm(i,j) + vym(i,j) * vym(i,j) ) 
+      if(vv.gt.vmax) then  
+         vxm(i,j) = vvx  
+         vym(i,j) = vvy  
+      end if 
+c
+ 2000 continue
+ 1000 continue
+c
+      return
+      end
+      function  fbed(tast0,tastc)
+c
+      include'bb20.inc'
+c
+c......Brown type formula1
+c      fbed = cmpm * ( tast0 - tastc )**2.5
+c
+c......Brown type formula2
+c     fbed = cmpm * tast0**2.5
+c
+c......M.P.M type formula
+c      fbed = cmpm * ( tast0 - tastc )**1.5
+c
+c......M.P.M type formula modified [see lecture note pdf] (adam pr: 5-12-2010)
+c      Tstar = tast0/tastc
+c      if(Tstar.lt.1.0) then 
+c        cmpm = 0.0
+c      elseif(Tstar.lt.3.0) then 
+c        cmpm = 6.0
+c      elseif(Tstar.lt.20.0) then 
+c        cmpm = 8.0
+c      else
+c        cmpm = 12.0
+c      endif
+c      cmpm = 0.0
+      fbed = cmpm * ( tast0 - tastc )**1.5
+c
+      return
+      end
+c
+c                             set initial values of array variables (20-6-2010 adam pr)
+c
+      subroutine  inset
+c
+      include'bb20.inc'
+c
+      exo = 10000.0
+      exu = -exo
+      exm = 0.00000001
+      wbl = 0.0
+      vbl = 0.0
+      icheck = 0
+c                                                           ddxyc: cell area * vol.conc of deposit
+      ddxy = dlx * dly
+      ddxyc = dlx * dly * cst
+c
+      do 3000 j=1,jmy
+        do 2000 i=1,imx
+          hh01(i,j) = 0.0
+          hh1(i,j) = 0.0
+          hh3(i,j) = 0.0
+          qm02(i,j) = 0.0
+          qn02(i,j) = 0.0
+          qm0(i,j) = 0.0
+          qn0(i,j) = 0.0
+          qm2(i,j) = 0.0
+          qn2(i,j) = 0.0
+c          qmbt(i,j)= 0.0
+c          qnbt(i,j)= 0.0
+          qmbtt(i,j) = 0.0
+          qnbtt(i,j) = 0.0
+c          cm(i,j) = 0.0
+c          cn(i,j) = 0.0
+c          qmbs(i,j) = 0.0
+c          qnbs(i,j) = 0.0
+c          ux(i,j) = 0.0
+          vx(i,j) = 0.0
+          uvx(i,j) = 0.0
+          egx(i,j) = 0.0
+          uy(i,j) = 0.0
+c          vy(i,j) = 0.0
+          uvy(i,j) = 0.0
+          egy(i,j) = 0.0
+          zl1(i,j) = zi(i,j)
+          zl3(i,j) = zi(i,j)
+          ipp(i,j) = 0
+          idist(i,j) = 1
+c
+          qmt(i,j) = 0.0
+          qnt(i,j) = 0.0
+          hmax(i,j) = 0.0
+          qmax(i,j) = 0.0
+          fmax(i,j) = 0.0
+          qxm(i,j) = 0.0
+          qym(i,j) = 0.0
+          vxm(i,j) = 0.0
+          vym(i,j) = 0.0
+          cmax(i,j) = 0.0
+c
+          dm(i,j)   = 0.0
+          dmix(i,j) = 0.0
+          ddz2(i,j) = 0.0
+          if(zi(i,j).lt.0.0)  go to 1110
+          if(adz(i,j).gt.0.0) then
+            dmix(i,j) = dmix0
+            ddz2(i,j) = adz(i,j) - dmix0
+            if(adz(i,j).lt.dmix0)  then
+              dmix(i,j) = adz(i,j)
+              ddz2(i,j) = 0.0
+            end if
+          else
+            dmix(i,j) = 0.0
+            ddz2(i,j) = 0.0
+          end if
+ 1110     continue
+c
+          k = idist(i,j)
+          do 4000 l = 1 , idnum
+c
+            qmb(l,i,j) = 0.0
+            qnb(l,i,j) = 0.0
+            dzd1(l,i,j) = 0.0
+            dzd2(l,i,j) = 0.0
+            qmbdt(l,i,j) = 0.0
+            qnbdt(l,i,j) = 0.0
+            qmbs1(l,i,j) = 0.0
+            qmbs2(l,i,j) = 0.0
+            qnbs1(l,i,j) = 0.0
+            qnbs2(l,i,j) = 0.0
+c
+            if(zi(i,j).lt.0.0)  go to 4000
+c
+            dzd1(l,i,j) = dmix(i,j) *  dist(l,k)
+            dzd2(l,i,j) = ddz2(i,j) *  dist(l,k)
+ 4000     continue
+c
+ 2000   continue
+ 3000 continue
+ 
+c
+      return
+      end
+c
+      subroutine  input(j)
+c
+      include'bb20.inc'
+c
+c
+ 1000 continue
+      read(1,100)  i,j
+c      write(*,*)'sampe sini nggak1??'
+c       write(*,*)'i,j=',i,j
+c       pause
+      if(j.gt.0) return
+      if(i.le.0.or.i.gt.6)  call  errnum('in01')
+      go to (10,20,30,40,50,60),i
+c
+   10 continue
+      call input1
+c      write(*,*)'sampe sini nggak2??'
+c      Pause
+      go to 1000
+c
+   20 continue
+      call input2
+c      write(*,*)'sampe sini nggak3??'
+c      Pause
+      go to 1000
+c
+   30 continue
+      call input3
+c      write(*,*)'sampe sini nggak4??'
+c      Pause
+      go to 1000
+c
+   40 continue
+      call input4
+c      write(*,*)'sampe sini nggak5??'
+c      Pause
+      go to 1000
+c
+   50 continue
+      read(1,200) itit
+      read(1,300) (dfname(i),i=1,lmq)
+c      write(*,*)'sampe sini nggak6??'
+c      Pause
+      go to 1000
+   60 continue
+      read(1,310) tmpfil
+      return
+  100 format(2x,i1,i4)
+  200 format(a80)
+  300 format(100a16)
+  310 format(a16)
+      end
+c
+c --------------------------------------------------------- input block no 1 (20-6-2010: adam pr)
+      subroutine  input1
+c
+      include'bb20.inc'
+c
+      character  m*8
+c
+      write(2,*) 'modified by adam pamudji rahardjo since june 2010'
+      write(2,*) 'continued by jazaul ikhsan in 2011, in 2014'
+      write(2,*)
+      read(1,100)  imx,jmy,dlx,dly,iwr,ickb,iel,imax
+      write(2,300) imx,jmy,dlx,dly
+      write(2,301) iwr,ickb,iel,imax
+c
+c                     make fem mesh for visualization added in (20-6-2010: adam pr)
+      call femesh
+c                     the original grid is extended, added by a new row / column for each side (23-6-2010: adam pr)
+      imx = imx + 2
+      jmy = jmy + 2
+c
+      im0 = imx - 1
+      jm0 = jmy - 1
+c                             ibc seems to be boundary condition flags, 1: top row, 2: bottom row (23-6-2010: adam pr)
+      do 3200 j=1,jmy
+c                             zi:  bed surface elev. initial val of -1.0 stands for land zone / dry river bank (23-6-2010: adam pr)
+c                             adz: erodible bed thickness                                                      (23-6-2010: adam pr)
+c                             ibz: flag for land (= -1.0) or river (= 0.0)            (23-6-2010: adam pr)
+c                             kabe is flag for dyke                                   (23-6-2010: adam pr)
+        ibc(1,j) = 2
+        ibc(2,j) = 2
+        do 3100 i=1,imx
+          zi(i,j) = -1.0
+          adz(i,j) = 0.0
+          ibz(i,j)= 0
+          kabe(i,j)=0
+ 3100 continue
+ 3200 continue
+c                             i1: original top row number,     i2: original bottom row number   (23-6-2010: adam pr)
+c                             j1: - idem - left column number, j2: - idem - right column number (23-6-2010: adam pr) 
+      i1 = 2
+      i2 = im0
+      j1 = 2
+      j2 = jm0
+c
+      do 1000 i=i1,i2
+        read(1,220) m
+        write(6,221) m 
+  221   format(1h ,'Now Reading Ground Elevation Data -- ',a8)
+        read(1,200) (zi(i,j),j=j1,j2)
+ 1000 continue
+c                                               send 2 fem mesh, added in (20-6-2010: adam pr)
+c                                               ip: 1D node numbering     (23-6-2010: adam pr)
+      do 2001 i=i1,i2
+        do 2002 j=j1,j2
+          ip = (i-2)*(j2-1)+j-1
+          val(ip) = zi(i,j)
+ 2002   continue
+ 2001 continue
+c                                               write to geo file (20-6-2010: adam pr)
+      call outputg  
+c
+      do 1001 j=j1,j2
+       do 1002 i=i1,i2
+        if(zi(i-1,j).lt.0.0.and.zi(i,j).ge.0.0) then
+           ibc(1,j) = i
+           go to 1003
+        end if
+ 1002 continue
+ 1003 continue
+       do 1004 i=i2,i1,-1
+        if(zi(i+1,j).lt.0.0.and.zi(i,j).ge.0.0) then
+           ibc(2,j) = i
+           go to 1005
+        end if
+ 1004 continue
+ 1005 continue
+ 1001 continue
+c
+      if(iel.eq.0)  go to 5100
+      do 4000 i=i1,i2
+       read(1,220) m
+       write(6,222)m
+  222  format(1h ,'Now Reading Thikness Erosion Data -- ',a8)
+       read(1,200)(adz(i,j),j=j1,j2)
+ 4000 continue
+c                                                 zdl: non-erodible bed surface elev (23-6-2010: adam pr)
+c                                                 ibz: set flag for land             (23-6-2010: adam pr)
+ 5100 continue
+      do 4020 j=1,jmy
+        do 4010 i=1,imx
+          if(zi(i,j).lt.0.0)  ibz(i,j) = -1
+          zdl(i,j) = zi(i,j) - adz(i,j)
+ 4010   continue
+ 4020 continue
+c                                                 read dyke data (22-6-2010: adam pr)
+      if(ickb.eq.1) then                          
+      do 4500 i=i1,i2
+       read(1,230)(kabe(i,j),j=j1,j2)
+ 4500 continue
+      end if
+c                                            
+      if(iwr.le.0)  return
+      do 7500 i=1,imx
+       write(2,500)  (i,j,zi(i,j),j=1,jmy)
+ 7500 continue
+c
+      return
+c
+  100 format(2i5,2f5.0,4i5)
+  110 format(i5,f5.0)
+  120 format(i5,3f5.0)
+c 200 format(16f5.0)
+  200 format(10f8.0)
+  210 format(f5.0)
+  220 format(a8)
+  230 format(270i1)
+  300 format(1h1,5x,' imx = ',i5,5x,' jmy = ',i5,
+     *           5x,' dlx = ',f8.2,' (m) ',5x,' dly = ',f8.2,' (m) '//)
+  301 format(1h ,5x,' iwr = ',i5,5x,' ickb= ',i5,5x,
+     *           ' iel = ',i5,' imax= ',i5/)
+  500 format(6(2i5,f10.4))
+c
+      end
+c -------------------------------------------------------------------
+      subroutine  input2
+c
+      include'bb20.inc'
+c
+c
+      dimension cksum(25),ddm(25)
+c
+      parameter ( pai = 3.14159265 / 180.0)
+c
+      read(1,100)  roh,sig,cst,bex,bey,eps,ichoise
+c      write(*,*)'sedcoef=',ichoise
+c      write(*,*)roh,sig,cst,bex,bey,eps,ichoise
+c      pause
+      read(1,110)  cmpm,sodo,alph,ild,tastcm,irect2
+      read(1,115)  sta1,fai,dtau
+c
+      if(tastcm.le.0.0) tastcm=0.05
+c
+      write(2,200)  roh,sig,cst,bex,bey,sodo
+      write(2,210)  cmpm,alph,eps,tastcm, ild,irect2
+      write(2,215)  sta1,fai,dtau
+       if(roh.lt.0.9.or.roh.gt.2.9)  call  errnum('roh ')
+       if(sig.lt.roh.or.sig.gt.5.0)  call  errnum('sig ')
+       if(cst.le.0.0.or.cst.gt.1.0)  call  errnum('cst ')
+       if(bex.le.0.0.or.bex.gt.2.0)  call  errnum('bex ')
+       if(bey.le.0.0.or.bey.gt.2.0)  call  errnum('bey ')
+       if(sodo.le.0.0.or.sodo.gt.1.0)call  errnum('sodo')
+       if(eps.le.0.0)                call  errnum('eps ')
+       if(alph.le.0.0.or.alph.gt.10.0)call  errnum('alph')
+       if(sta1.le.0.0.or.sta1.gt.90.0)  call  errnum('sta1')
+       if(fai.le.0.0.or.fai.gt.90.0)  call  errnum('fai ')
+c
+      fai = tan(fai*pai)
+      ss1 = sig / roh - 1.0
+      sta1 = sta1 * pai
+      sin1 = sin( sta1 )
+      cos1 = cos( sta1 )
+      tan1 = tan( sta1 )
+c
+      read(1,120)  idnum,indst,dmix0,dcng
+      read(1,130)  (gsd(l)  ,l=1,idnum)
+      read(1,130)  (dsinp(l),l=1,idnum)
+c
+      do 1100 k=1,indst
+      read(1,130)  (dist(l,k),l=1,idnum)
+ 1100 continue
+c
+      if(indst.gt.1)  then
+        do 1110 i=2,im0
+          read(1,135)  (idist(i,j),j=2,jm0)
+ 1110   continue
+      end if
+c
+      write(2,220)  idnum,indst,dmix0,dcng
+      write(2,230)  (gsd(l)  ,l=1,idnum)
+      write(2,232)  (dsinp(l),l=1,idnum)
+c
+      if(dmix0.lt.dcng)  call errnum('dcng')
+c
+      do 1000 k=1,indst
+      write(2,234)   k,(dist(l,k),l=1,idnum)
+ 1000 continue
+c
+      a1 = 0.0
+      do 1500 k = 1 , indst
+        cksum(k) = 0.0
+        ddm(k) = 0.0
+ 1500 continue
+c
+      dm0 = 0.0
+      do 1600 l = 1, idnum
+        f0 = 36.0 * 0.01**2 / ss1 / 980.0 / gsd(l)**3
+        fd =   sqrt( 2.0 / 3.0 + f0 ) - sqrt( f0 )
+        w0(l) = sqrt( ss1 * 980.0 * gsd(l) ) * fd
+        w0(l) = w0(l) / 100.0
+        gsd(l) = gsd(l) / 100.0
+      do 1700 k = 1, indst
+        cksum(k) = cksum(k) + dist(l,k)
+        ddm(k) = ddm(k) + gsd(l) * dist(l,k)
+ 1700 continue
+      a1  = a1 + dsinp(l)
+      dm0 = dm0 + gsd(l) * dsinp(l)
+ 1600 continue
+c
+      write(2,240) dm0
+c
+        err = abs( 1.0 - a1 )
+      if(err.gt.0.001)   call errnum('dsin')
+      do 1200 k = 1 , indst
+        err = abs( 1.0 - cksum(k) )
+        if(err.gt.0.001)  call errnum('dist')
+ 1200 continue
+c
+      return
+c
+  100 format(5f5.0,f10.0,i5)
+  110 format(3f5.0,i5,f5.0,i5)
+  115 format(3f5.0)
+  120 format(2i5,2f5.0)
+  130 format(5f5.0)
+  135 format(270i1)
+  200 format(1h ,5x,' roh = ',f7.4,5x,' sig = ',f7.4,5x,' cst = ',f7.4,
+     *          /5x,' bex = ',f7.4,5x,' bey = ',f7.4,5x,' sodo= ',f7.4)
+  210 format(1h ,5x,'cmpm = ',f7.4,5x,' alph= ',f7.4,5x,
+     *          ' eps = ',f10.7,3x,'tastcm = ',f10.4,3x,'ild = ',i5,3x,
+     *          'irect2 = ',i5//)
+  215 format(1h ,5x,'sta1 = ',f7.4,5x,' fai = ',f7.4,5x,
+     *          ' dtau= ',f10.7,//)
+  220 format(1h ,5x,'idnum= ',i7  ,5x,'indst= ',i7  ,5x,
+     *          /5x,'dmix0= ',f7.4,5x,'dcng = ',f7.4/)
+  230 format(1h ,5x,'gsd  ',5f10.4)
+  232 format(1h ,5x,'input',5f10.4)
+  234 format(1h ,5x,i5     ,5f10.4)
+  240 format(1h ,5x,'dm0 =',5f10.4)
+c
+      end
+c ------------------------------------------------------------------
+      subroutine  input3
+c
+      include'bb20.inc'
+c
+c
+      character m*80
+c
+      read(1,100)  lhd,lmq
+c
+      write(2,110)  lhd,lmq
+      write(2,300)
+c                                                 tt: data input time interval (24-6-2010: adam pr)
+c                                                 dlt: computational time step (24-6-2010: adam pr)
+      do 1100 i=1,lmq
+       read(1,202)  tt(i),dlt(i)
+       write(2,310) i, tt(i),dlt(i)
+       write(*,*)'i, tt(i), dlt(i)=',i, tt(i), dlt(i)
+       if(tt(i).le.0.0)    call  errnum('tt  ')
+       if(dlt(i).le.0.0)   call  errnum('dlt ')
+ 1100 continue
+
+      do 1010 l=1,lhd
+c
+      read(1,120)  ipf(l),(ijp(l,k),k=1,3),bi0(l),slu(l)
+      if(ipf(l).le.2)
+     *    write(2,206) l,ipf(l),(ijp(l,k),k=1,3),bi0(l),slu(l)
+      if(ipf(l).ge.3)
+     *    write(2,208) l,ipf(l),(ijp(l,k),k=1,3),bi0(l),slu(l)
+c
+       if(slu(l).le.0.0)                call  errnum('slu ')
+       if(bi0(l).le.0.0)                call  errnum('bi0 ')
+c
+      write(2,205) (i,i=1,idnum)
+c
+      do 1000 i=1,lmq
+       read(1,200)  qi0(l,i),huu(l,i),(cdu(k,l,i),k=1,idnum )
+c
+       if(qi0(l,i).lt.0.0)   qi0(l,i) = abs(qi0(l,i)/1000.0)
+       write(2,210)  i,qi0(l,i),huu(l,i),(cdu(k,l,i),k=1,idnum)
+       write(*,*)'i,q(i)=',i,qi0(l,i)
+ 1000 continue
+c
+      do 5000 i = 1 , 3
+       ijp(l,i) = ijp(l,i) + 1
+ 5000 continue
+ 1010 continue
+c
+      return
+c
+  100 format(2i5)
+  110 format(/5x,' lhd = ',i5,5x,' lmq = ',i5/)
+  120 format(4i5,f5.0,f10.0)
+  202 format(2f5.0)
+  200 format(2f5.0,5f10.0)
+  300 format(1h ,5x,'  no.','      tt  ','   dlt  ')
+  310 format(1h ,5x,i5,f8.2,f8.3)
+  205 format(1h ,5x,'  no.','     qi0 ','    hu', 5(i8))
+  206 format(1h /5x,'hydro graph no. :',i3,5x,'input flag :',i3,
+     *           5x,'input point x=',i3,'  y=',i3,'-',i3,5x,
+     *              'bi0 = ',f8.3,5x,'slu = ',f8.4)
+  208 format(1h /5x,'hydro graph no. :',i3,5x,'input flag :',i3,
+     *           5x,'input point x=',i3,'-',i3,'  y=',i3,5x,
+     *              'bi0 = ',f8.3,5x,'slu = ',f8.4)
+  210 format(1h ,5x,i5,f10.3,f8.3,5(f8.4))
+  220 format(a80)
+  230 format(270i1)
+c
+      end
+c -------------------------------------------------------------------
+c
+      subroutine  input4
+c
+      include'bb20.inc'
+c
+c
+       read(1,100)  (iprn(i),i=1,6),izl,iwl,iplt
+      write(2,110)  (iprn(i),i=1,6),izl,iwl,iplt
+      if(izl.le.0)  go to 1000
+      if(izl.gt.10)  call errnum('in22')
+       read(1,200)  (zl(i),i=1,izl)
+      write(2,210)  (zl(i),i=1,izl)
+      if(iwl.le.0)  go to 1100
+       read(1,200)  (wl(i),i=1,iwl)
+      write(2,220)  (wl(i),i=1,iwl)
+      go to 1000
+ 1100 continue
+      iwl = izl
+      do 1200 i=1,10
+       wl(i) = zl(i)
+ 1200 continue
+ 1000 continue
+c
+      return
+c
+  100 format(9i5)
+  110 format(1h ,
+     *        5x, ' iprn1 = ',i5,5x,' iprn2 = ',i5,5x,' iprn3 = ',i5,
+     *       /5x, ' iprn4 = ',i5,5x,' iprn5 = ',i5,5x,' iprn6 = ',i5,
+     *       /5x, ' izl   = ',i5,5x,'   iwl = ',i5,5x,' iplt  = ',i5)
+  200 format(15f5.0)
+  210 format(1h ,5x,' zl = ',10f10.4)
+  220 format(1h ,5x,' wl = ',15f10.4)
+c
+      end
+c
+c===================================================================================================
+c
+      subroutine  delete
+c                                                                 set back variable to zero (adam pr:7-12-2010)
+      include'bb20.inc'
+c
+c
+      do 9990 j=2,jm0
+      do 9980 i=ibc(1,j),ibc(2,j)
+c
+c     if( i.eq.2 )  go to  9980
+      if(ipp(i,j).gt.0)  go to 9980
+
+c
+      if(zi(i-1,j).lt.0.0.or.zi(i,j-1).lt.0.0.or.zi(i+1,j).lt.0.0.or.
+     *   zi(i,j+1).lt.0.0)  then
+      if(hh3(i,j).gt.0.01)  hh3(i,j)=0.01
+      zl3(i,j)=zi(i,j)
+c
+      if(adz(i,j).le.0)  go to 1000
+       dmix(i,j) = dmix0
+       ddz2(i,j) = adz(i,j) - dmix0
+      go to 1100
+ 1000 continue
+       dmix(i,j) = 0.0
+       ddz2(i,j) = 0.0
+ 1100 continue
+c
+      k = idist(i,j)
+      do 8000 l = 1 ,idnum
+       dzd1(l,i,j) = dmix(i,j) * dist(l,k)
+       dzd2(l,i,j) = ddz2(i,j) * dist(l,k)
+ 8000 continue
+      end if
+c
+ 9980 continue
+ 9990 continue
+c
+c     i = im0
+c     do 9990 j=2,jm0
+c     hh3(i,j)=0.
+c     zl3(i,j)=zi(i,j)
+c
+c     if(adz(i,j).le.0)  go to 1000
+c      dmix(i,j) = dmix0
+c      ddz2(i,j) = adz(i,j) - dmix0
+c     go to 1100
+c1000 continue
+c      dmix(i,j) = 0.0
+c      ddz2(i,j) = 0.0
+c1100 continue
+c
+c     k = idist(i,j)
+c     do 8000 l = 1 ,idnum
+c      dzd1(l,i,j) = dmix(i,j) * dist(l,k)
+c      dzd2(l,i,j) = ddz2(i,j) * dist(l,k)
+c8000 continue
+c
+c9990 continue
+c
+c     j1 = 2
+c     j2 = jm0
+c     do 9991 i=2,im0
+c     hh3(i,j1) = 0.
+c     hh3(i,j2) = 0.
+c     zl3(i,j1) = zi(i,j1)
+c     zl3(i,j2) = zi(i,j2)
+c
+c     dmix(i,j1) = dmix0
+c     ddz2(i,j1) = adz(i,j) - dmix0
+c     dmix(i,j2) = dmix0
+c     ddz2(i,j2) = adz(i,j) - dmix0
+c     k1 = idist(i,j1)
+c     k2 = idist(i,j2)
+c     do 8001 l = 1 ,idnum
+c      dzd1(l,i,j1) = dmix(i,j) * dist(l,k1)
+c      dzd2(l,i,j1) = ddz2(i,j) * dist(l,k1)
+c      dzd1(l,i,j2) = dmix(i,j) * dist(l,k2)
+c      dzd2(l,i,j2) = ddz2(i,j) * dist(l,k2)
+c8001 continue
+c
+c9991 continue
+c
+      return
+      end
+      subroutine  errnum(i)
+c
+      include'bb20.inc'
+c
+      character i*4
+c
+      write(2,100) i
+  100 format(10x,' ***  error  no. ',a4,' ***')
+      stop
+c
+      end
+      subroutine  calerr(dt1,dt2,i)
+c
+      include'bb20.inc'
+c
+c
+      character i*4
+c
+c     icheck = 1
+      call  print1(dt1,dt2)
+      call  print2(dt1,dt2)
+      write(2,100)  i
+  100 format(10x,' ***  error  no. ',a4,' ***')
+c
+      stop
+      end
+c --------------------------------------------------------------------
+      subroutine  print1(dt1,dt2)
+c
+      include'bb20.inc'
+c
+c
+      integer*4  itimex
+      dimension  nob(12),dz(12)
+c
+      dt = dt2 * 2.0
+c
+      i0 = im0 - 1
+      k1 = i0 / 12 + 1
+      k2 = mod(i0,12)
+c
+      do 1000 k=1,k1
+      k3 = 12
+      if(k.eq.k1.and.k2.ne.0)  k3 = k2
+c
+      i1 = (k-1)*12 + 2
+      i2 = k*12 + 1
+      if(k.eq.k1.and.k2.ne.0)  i2 = i1 - 1 + k2
+c
+      j = jm0 + 1
+ 9000 continue
+      m1 = j - 1
+      m2 = j - 5
+      if(m2.lt.2)  m2 = 2
+      if(icheck.eq.1)  go to 6010
+      do 5000 i=i1,i2
+      do 6000 m=m2,m1
+        if(hh1(i,m).gt.exm.or.hh3(i,m).gt.exm)  go to 5500
+        if(abs(qm0(i,m)).gt.exm.or.abs(qm2(i,m)).gt.exm)  go to 5500
+        if(abs(qn0(i,m)).gt.exm.or.abs(qn2(i,m)).gt.exm)  go to 5500
+ 6000 continue
+ 5000 continue
+       go to 2000
+ 6010 continue
+      do 5010 i=i1,i2
+      do 6020 m=m2,m1
+       if(hh3(i,m).lt.0.0)  go to 5500
+       if(qm2(i,m).gt.exo.or.qm2(i,m).lt.exu)  go to 5500
+       if(qn2(i,m).gt.exo.or.qn2(i,m).lt.exu)  go to 5500
+ 6020 continue
+ 5010 continue
+       go to 2000
+c
+ 5500 continue
+      write(2,100)
+      itimex = int(dt1 + dt1/86400.0)
+      itime1 = itimex / 3600
+      itimey = itimex - itime1 * 3600
+      itime2 = itimey / 60
+      itime3 = itimey - itime2 * 60
+      write(2,200) itit,itime1,itime2,itime3
+      write(2,210) dt1,dt
+  200 format(5x,a80,' jikan : ',i3,'h ',i2,'m ',i2,'s ')
+  210 format(    85x,'  time : ',f10.3,'(s)  dt: ',f7.4,' (s)')
+c
+      do 2300 l=1,k3
+      nob(l) = l-2+i1
+ 2300 continue
+c
+      write(2,300)  (nob(l),l=1,k3)
+      m = m1 + 1
+      do 2100 n=m2,m1
+      m = m -1
+      write(2,400)  m-1
+      write(2,500)  (hh1(i,m),i=i1,i2)
+      write(2,510)  (qm0(i,m),i=i1,i2)
+      write(2,520)  (qn0(i,m),i=i1,i2)
+      write(2,530)  (zl1(i,m),i=i1,i2)
+      write(2,540)  (hh3(i,m),i=i1,i2)
+      write(2,520)  (qm2(i,m),i=i1,i2)
+      write(2,560)  (qn2(i,m),i=i1,i2)
+      write(2,570)  (zl3(i,m),i=i1,i2)
+c
+      k9 = 0
+      do 2400 l=i1,i2
+      k9 = k9 + 1
+      dz(k9) = 0.0
+      if(zi(l,m).lt.0.0)  go to 2400
+      dz(k9) = zl3(l,m) + hh3(l,m)
+ 2400 continue
+c
+      write(2,580)  (dz(i),i=1,k9)
+ 2100 continue
+c
+ 2000 continue
+       j = m2
+       if(j.gt.2)  go to 9000
+ 1000 continue
+      write(2,110)  vbl
+      write(2,120)  wbl
+c
+      return
+c
+  100 format(1h1)
+  110 format('   sediment volume =   ',e15.9,'   (m3)')
+  120 format('   water    volume =   ',e15.9,'   (m3)')
+  300 format(10x,12(1x,' x =',i4,1x))
+  400 format(2x,' y =',i4)
+  500 format(' depth-1  ',12f10.5)
+  510 format(' x-flux-0 ',12f10.5)
+  520 format(' y-flux-0 ',12f10.5)
+  530 format(' bed-e.l-1',12f10.5)
+  540 format(' depth-3  ',12f10.5)
+  550 format(' x-flux-2 ',12f10.5)
+  560 format(' y-flux-2 ',12f10.5)
+  570 format(' bed-e.l-3',12f10.5)
+  580 format(' h-e.l.-3 ',12f10.5)
+c
+      end
+c
+c --------------------------------------------------------
+      subroutine  print2(dt1,dt2)
+c
+      include'bb20.inc'
+c
+c
+      integer*4  itimex
+      dimension  nob(12),d1(12),d2(12),d3(12),d4(12)
+c
+      dt = dt2 * 2.0
+c
+      i0 = im0 - 1
+      k1 = i0 / 12 + 1
+      k2 = mod(i0,12)
+c
+      do 1000 k=1,k1
+      k3 = 12
+      if(k.eq.k1.and.k2.ne.0)  k3 = k2
+c
+      i1 = (k-1)*12 + 2
+      i2 = k*12 + 1
+      if(k.eq.k1.and.k2.ne.0)  i2 = i1 - 1 + k2
+c
+      j = jm0 + 1
+ 9000 continue
+      m1 = j - 1
+      m2 = j - 5
+      if(m2.lt.2)  m2 = 2
+      if(icheck.eq.1)  go to 6010
+      do 5000 i=i1,i2
+      do 6000 m=m2,m1
+        if(hh1(i,m).gt.exm.or.hh3(i,m).gt.exm)  go to 5500
+        if(abs(qm0(i,m)).gt.exm.or.abs(qm2(i,m)).gt.exm)  go to 5500
+        if(abs(qn0(i,m)).gt.exm.or.abs(qn2(i,m)).gt.exm)  go to 5500
+ 6000 continue
+ 5000 continue
+       go to 2000
+ 6010 continue
+      do 5010 i=i1,i2
+      do 6020 m=m2,m1
+       if(hh3(i,m).lt.0.0)  go to 5500
+       if(qm2(i,m).gt.exo.or.qm2(i,m).lt.exu)  go to 5500
+       if(qn2(i,m).gt.exo.or.qn2(i,m).lt.exu)  go to 5500
+ 6020 continue
+ 5010 continue
+       go to 2000
+c
+ 5500 continue
+      write(2,100)
+      itimex = int(dt1 + dt1/86400.0)
+      itime1 = itimex / 3600
+      itimey = itimex - itime1 * 3600
+      itime2 = itimey / 60
+      itime3 = itimey - itime2 * 60
+      write(2,200) itit,itime1,itime2,itime3
+      write(2,210) dt1,dt
+  200 format(5x,a80,' jikan : ',i3,'h ',i2,'m ',i2,'s ')
+  210 format(    85x,'  time : ',f10.3,'(s)  dt: ',f7.4,' (s)')
+c
+      do 2300 l=1,k3
+      nob(l) = l-2+i1
+ 2300 continue
+c
+      write(2,300)  (nob(l),l=1,k3)
+      m = m1 + 1
+      do 2100 n=m2,m1
+      m = m -1
+      write(2,400)  m-1
+c     write(2,520)  (cm(i,m),i=i1,i2)
+c     write(2,530)  (cn(i,m),i=i1,i2)
+c     write(2,520)  (qmbs(i,m),i=i1,i2)
+c     write(2,530)  (qnbs(i,m),i=i1,i2)
+      write(2,520)  (uvx(i,m),i=i1,i2)
+      write(2,530)  (uvy(i,m),i=i1,i2)
+c
+      k9 = 0
+      do 2410 l=i1,i2
+        k9 = k9 + 1
+        d3(k9) = 0.0
+        d4(k9) = 0.0
+        if(zi(l,m).lt.0.0)  go to 2410
+        do 2420 ll = 1,idnum 
+          d3(k9) = d3(k9) + qmb(ll,l,m)
+          d4(k9) = d4(k9) + qnb(ll,l,m)
+ 2420   continue
+ 2410 continue
+c
+      write(2,540)  (d3(i),i=1,k9)
+      write(2,520)  (d4(i),i=1,k9)
+c
+c     write(2,540)  (qmbt(i,m),i=i1,i2)
+c     write(2,520)  (qnbt(i,m),i=i1,i2)
+c     write(2,560)  (egx(i,m)  ,i=i1,i2)
+c     write(2,570)  (egy(i,m)  ,i=i1,i2)
+      write(2,560)  (dm(i,m)  ,i=i1,i2)
+      write(2,570)  (dmix(i,m),i=i1,i2)
+      write(2,580)  (ddz2(i,m),i=i1,i2)
+c
+      k9 = 0
+      do 2400 l=i1,i2
+      k9 = k9 + 1
+      d1(k9) = 0.0
+      d2(k9) = 0.0
+      if(zi(l,m).lt.0.0)  go to 2400
+      d1(k9) = dmix(l,m) + ddz2(l,m)
+      d2(k9) = zl3(l,m) - zi(l,m)
+ 2400 continue
+c
+      write(2,590)  (d1(i),i=1,k9)
+      write(2,600)  (d2(i),i=1,k9)
+ 2100 continue
+c
+ 2000 continue
+       j = m2
+       if(j.gt.2)  go to 9000
+ 1000 continue
+c
+c                                  write x vel to fem mesh (29-6-2010: adam pr) 
+c
+      do ig = 2,imx-1
+        i = ig-1
+        do jg = 2,jmy-1
+          j = jg-1
+          ip = (i-1)*(jmy-2)+j
+          val(ip) = uvx(ig,jg)
+        end do
+      end do
+      call outputr(16)
+c
+c                                  write y vel to fem mesh (29-6-2010: adam pr) 
+c
+      do ig = 2,imx-1
+        i = ig-1
+        do jg = 2,jmy-1
+          j = jg-1
+          ip = (i-1)*(jmy-2)+j
+          val(ip) = uvy(ig,jg)
+        end do
+      end do
+      call outputr(18)
+c
+      return
+c
+  100 format(1h1)
+  110 format('    cd    ',f10.6)
+  300 format(10x,12(1x,' x =',i4,1x))
+  400 format(2x,' y =',i4)
+c 520 format(' cm       ',12f10.5)
+c 530 format(' cn       ',12f10.5)
+c 520 format(' qmbs     ',12f10.5)
+c 530 format(' qnbs     ',12f10.5)
+  520 format(' uvx      ',12f10.5)
+  530 format(' uvy      ',12f10.5)
+  540 format(' qmbt     ',12f10.5)
+  550 format(' qnbt     ',12f10.5)
+c 560 format(' egx      ',12f10.5)
+c 570 format(' egy      ',12f10.5)
+  560 format(' dm-mix-l ',12f10.5)
+  570 format(' bed-dmix ',12f10.5)
+  580 format(' bed-ddz2 ',12f10.5)
+  590 format(' bed-depth',12f10.5)
+  600 format(' bed-var  ',12f10.5)
+c
+      end
+c
+c -------------------------------------------------------------
+      subroutine  print3(dt1,dt2)
+c
+      include'bb20.inc'
+c
+c
+      dimension  ifl(500),mark(22),ased(500)
+      integer*4  itimex
+      character  ifl*1,mark*1
+c
+      data mark/'*','+','1','2','3','4','5','6','7','8','9','@',
+     *          'a','b','c','d','e','f','g','h','i','#'/
+c
+      dt = dt2 * 2.0
+c
+      if(izl.gt.0)  go to 1000
+c
+c                zl3: may be temporal bed elev after computation 18-6-2010
+c                zi: may be bed elev 18-6-2010
+c                imx, jmx: max number of x and y grid
+c
+      a = 0.0
+      do 2000 i=1,imx
+        do 3000 j=1,jmy
+          dz = zl3(i,j) - zi(i,j)
+c                                 "a" will be max dz (bed elev change) 18-6-2010 
+          if(dz.gt.a)  a = dz
+ 3000   continue
+ 2000 continue
+c                                 izl: max value of output characters 18-6-2010
+      izl = 10
+      if(a.le.0)  call  errnum('pr01')
+      do 4000 i=1,izl
+        zl(i) = a/10.0*float(i-1)
+ 4000 continue
+c
+ 1000 continue
+      write(2,100)
+      write(4,100)
+      write(22,*)'sediment'
+  100 format(1h1/10x,' *** sediment deposit depth distribution ***')
+      itimex = int(dt1 + dt1/86400.0)
+      itime1 = itimex / 3600
+      itimey = itimex - itime1 * 3600
+      itime2 = itimey / 60
+      itime3 = itimey - itime2 * 60
+      write(2,260) itit,itime1,itime2,itime3
+      write(2,270) dt1,dt
+      write(4,260) itit,itime1,itime2,itime3
+      write(4,270) dt1,dt
+  260 format(5x,a80,' jikan : ',i3,'h ',i2,'m ',i2,'s ')
+  270 format(    85x,'  time : ',f10.3,'(s)  dt: ',f7.4,' (s)')
+c
+c      write(*,*)'this step passed1ok'
+c          pause
+      do 5000 i=1,imx
+        do 5100 j=1,jmy
+          ifl(j) = mark(1)
+          if(zi(i,j).lt.0.0) go to 5100
+          a = zl3(i,j) - zi(i,j)
+          ased(j)= a
+c          write(22,*)a
+          if(a.gt.-zl(1).and.a.lt.zl(1)) then
+            ifl(j) = mark(2)
+            go to 5100
+          end if
+         do 5300 k=1,izl
+           if(a.ge.0.0.and.a.gt. zl(k))  go to 5300
+           if(a.lt.0.0.and.a.lt.-zl(k))  go to 5300
+           if(a.ge.0.0)  ifl(j) = mark(k+1)
+            if(a.lt.0.0)  ifl(j) = mark(k+11)
+           go to 5100
+ 5300    continue
+         if(a.ge. zl(izl))  ifl(j) = mark(12)
+         if(a.le.-zl(izl))  ifl(j) = mark(22)
+ 5100   continue
+c
+c           write(*,*)'this step passed1ok'
+c          pause
+c       Problem was founded from this step
+        write(22,5001)(ased(j),j=1,jmy)
+ 5001   format(500E11.3)          
+        write(2,200)  (ifl(j),j=1,jmy)
+c         write(4,201)  ((zl3(i,j)-zi(i,j)),j=1,jmy)
+c         write(*,*)'this step passed1'
+c          pause
+c
+c        Write(22,*)(zi(i,j),j=1,jmy)
+ 5000 continue
+c
+      write(2,110)  vbl
+      write(2,120)  wbl
+c                                  convert to fem mesh (20-6-2010: adam pr)
+      do ig = 2,imx-1
+        i = ig-1
+        do jg = 2,jmy-1
+          j = jg-1
+          ip = (i-1)*(jmy-2)+j
+          val(ip) = zl3(ig,jg)-zi(ig,jg)
+        end do
+      end do
+c                                  write to fem mesh (20-6-2010: adam pr)
+      call outputr(10)
+c                                  write again for elev after erosion and deposition (29-6-2010: adam pr) 
+c
+      do ig = 2,imx-1
+        i = ig-1
+        do jg = 2,jmy-1
+          j = jg-1
+          ip = (i-1)*(jmy-2)+j
+          val(ip) = zl3(ig,jg)
+        end do
+      end do
+      call outputr(12)
+c
+      return
+c
+  110 format('   sediment volume =   ',e15.9,'  (m3)')
+  120 format('   water    volume =   ',e15.9,'  (m3)')
+  200 format(2x,500a1)
+  201 format(2x,500(1x,E10.3))
+c
+      end
+c
+c ---------------------------------------------
+      subroutine  print4(dt1,dt2)
+c
+      include'bb20.inc'
+c
+c
+      dimension  ifl(500),mark(12),awater(500)
+      integer*4  itimex
+      character  ifl*1,mark*1
+c
+      data mark/'*','+','1','2','3','4','5','6','7','8','9','@'/
+c
+      dt = dt2 * 2.0
+c
+      if(iwl.le.0)  return
+      write(2,100)
+      write(4,100)
+      write(20,*)'water'
+  100 format(1h1/10x,' *** flow water depth destribution *** ')
+      itimex = int(dt1 + dt1/86400.0)
+      itime1 = itimex / 3600
+      itimey = itimex - itime1 * 3600
+      itime2 = itimey / 60
+      itime3 = itimey - itime2 * 60
+      write(2,260) itit,itime1,itime2,itime3
+      write(2,270) dt1,dt
+      write(4,260) itit,itime1,itime2,itime3
+      write(4,270) dt1,dt
+  260 format(5x,a80,' jikan : ',i3,'h ',i2,'m ',i2,'s ')
+  270 format(    85x,'  time : ',f10.3,'(s)  dt: ',f7.4,' (s)')
+c
+      do 5000 i=1,imx
+        do 5100 j=1,jmy
+          ifl(j) = mark(1)
+c          write(*,*)ifl(j),j
+          if(zi(i,j).lt.0.0)  go to 5100
+c                                                    hh3: calculated water depth (20-6-2010: adam pr)
+          a = hh3(i,j)
+c          awater(j)=a
+          do 5300 k=1,iwl
+            if(a.gt.wl(k))  go to 5300
+              ifl(j) = mark(k+1)
+c              write(*,*)ifl(j),j
+              go to 5100
+ 5300     continue
+          if(a.gt.wl(iwl))  ifl(j) = mark(12)
+c          write(*,*)ifl(j),j
+ 5100   continue
+c
+        write(2,200)  (ifl(j),j=1,jmy)
+        write(20,5002)(hh3(i,j),j=1,jmy)
+ 5002   format(500E11.3)       
+c         write(4,201)  (hh3(i,j),j=1,jmy)
+c          write(*,*)ifl(j),hh3(i,j)
+c          pause
+c           write(20,*)(zi(i,j),j=1,jmy)
+ 5000 continue
+c
+      write(2,110)  vbl
+      write(2,120)  wbl
+      write(4,110)  vbl
+      write(4,120)  wbl
+c
+c                                  write depth to fem mesh (29-6-2010: adam pr) 
+c
+      do ig = 2,imx-1
+        i = ig-1
+        do jg = 2,jmy-1
+          j = jg-1
+          ip = (i-1)*(jmy-2)+j
+          val(ip) = hh3(ig,jg)
+        end do
+      end do
+      call outputr(14)
+c
+      return
+c
+  110 format('   sediment volume =   ',e15.9,'  (m3)')
+  120 format('   water    volume =   ',e15.9,'  (m3)')
+  200 format(2x,500a1)
+  201 format(2x,500(1x,E10.3))
+c
+      end
+c
+c ------------------------------------------------------
+      subroutine  print5(dt1,dt2)
+c
+      include'bb20.inc'
+c
+c
+      integer*4  itimex
+      dimension  nob(12),d1(12),d2(12)
+c
+      dt = dt2 * 2.0
+c
+      i0 = im0 - 1
+      k1 = i0 / 12 + 1
+      k2 = mod(i0,12)
+c
+      do 1000 k=1,k1
+      k3 = 12
+      if(k.eq.k1.and.k2.ne.0)  k3 = k2
+c
+      i1 = (k-1)*12 + 2
+      i2 = k*12 + 1
+      if(k.eq.k1.and.k2.ne.0)  i2 = i1 - 1 + k2
+c
+      j = jm0 + 1
+ 9000 continue
+      m1 = j - 1
+      m2 = j - 5
+      if(m2.lt.2)  m2 = 2
+      if(icheck.eq.1)  go to 6010
+      do 5000 i=i1,i2
+      do 6000 m=m2,m1
+        if(hh1(i,m).gt.exm.or.hh3(i,m).gt.exm)  go to 5500
+        if(abs(qm0(i,m)).gt.exm.or.abs(qm2(i,m)).gt.exm)  go to 5500
+        if(abs(qn0(i,m)).gt.exm.or.abs(qn2(i,m)).gt.exm)  go to 5500
+ 6000 continue
+ 5000 continue
+       go to 2000
+ 6010 continue
+      do 5010 i=i1,i2
+      do 6020 m=m2,m1
+       if(hh3(i,m).lt.0.0)  go to 5500
+       if(qm2(i,m).gt.exo.or.qm2(i,m).lt.exu)  go to 5500
+       if(qn2(i,m).gt.exo.or.qn2(i,m).lt.exu)  go to 5500
+ 6020 continue
+ 5010 continue
+       go to 2000
+c
+ 5500 continue
+      write(2,100)
+      itimex = int(dt1 + dt1/86400.0)
+      itime1 = itimex / 3600
+      itimey = itimex - itime1 * 3600
+      itime2 = itimey / 60
+      itime3 = itimey - itime2 * 60
+      write(2,200) itit,itime1,itime2,itime3
+      write(2,210) dt1,dt
+  200 format(5x,a80,' jikan : ',i3,'h ',i2,'m ',i2,'s ')
+  210 format(    85x,'  time : ',f10.3,'(s)  dt: ',f7.4,' (s)')
+c
+      do 2300 l=1,k3
+      nob(l) = l-2+i1
+ 2300 continue
+c
+      write(2,300)  (nob(l),l=1,k3)
+      m = m1 + 1
+      do 2100 n=m2,m1
+      m = m -1
+      write(2,400)  m-1
+c
+       do 3100 kk = 1 , idnum
+         k9 = 0
+       do 2400 l=i1,i2
+        k9 = k9 + 1
+        d1(k9) = 0.0
+        if(zi(l,m).lt.0.0)  go to 2400
+        if(dmix(l,m).le.0.0)  go to 2400
+        d1(k9) = dzd1(kk,l,m) / dmix(l,m) * 100.0
+ 2400 continue
+c
+      write(2,580)  kk, (d1(i),i=1,k9)
+ 3100 continue
+c
+       do 3200 kk = 1 , idnum
+         k9 = 0
+       do 2410 l=i1,i2
+        k9 = k9 + 1
+        d2(k9) = 0.0
+        if(zi(l,m).lt.0.0)  go to 2410
+        if(ddz2(l,m).le.0.0)  go to 2410
+        d2(k9) = dzd2(kk,l,m) / ddz2(l,m) * 100.0
+ 2410 continue
+c
+      write(2,590)  kk ,(d2(i),i=1,k9)
+ 3200 continue
+c
+ 2100 continue
+ 2000 continue
+       j = m2
+       if(j.gt.2)  go to 9000
+ 1000 continue
+c
+      return
+c
+  100 format(1h1)
+  300 format(10x,12(1x,' x =',i4,1x))
+  400 format(2x,' y =',i4)
+  580 format(' dmix',i5  ,12f10.5)
+  590 format(' ddz2',i5  ,12f10.5)
+c
+      end
+c ------------------------------------------
+      subroutine  print6(dt1,dt2)
+c
+      include'bb20.inc'
+c
+c
+      integer*4  itimex
+      dimension  nob(12)
+c
+      dt = dt2 * 2.0
+      i0 = im0 - 1
+      k1 = i0 / 12 + 1
+      k2 = mod(i0,12)
+c
+      do 1000 k=1,k1
+      k3 = 12
+      if(k.eq.k1.and.k2.ne.0)  k3 = k2
+c
+      i1 = (k-1)*12 + 2
+      i2 = k*12 + 1
+      if(k.eq.k1.and.k2.ne.0)  i2 = i1 - 1 + k2
+c
+      j = jm0 + 1
+ 9000 continue
+      m1 = j - 1
+      m2 = j - 5
+      if(m2.lt.2)  m2 = 2
+c
+      if(icheck.eq.1)  go to 6010
+      do 5000 i=i1,i2
+      do 6000 m=m2,m1
+        if(hh1(i,m).gt.exm.or.hh3(i,m).gt.exm)  go to 5500
+        if(abs(qm0(i,m)).gt.exm.or.abs(qm2(i,m)).gt.exm)  go to 5500
+        if(abs(qn0(i,m)).gt.exm.or.abs(qn2(i,m)).gt.exm)  go to 5500
+ 6000 continue
+ 5000 continue
+       go to 2000
+ 6010 continue
+      do 5010 i=i1,i2
+      do 6020 m=m2,m1
+       if(hh3(i,m).lt.0.0)  go to 5500
+       if(qm2(i,m).gt.exo.or.qm2(i,m).lt.exu)  go to 5500
+       if(qn2(i,m).gt.exo.or.qn2(i,m).lt.exu)  go to 5500
+ 6020 continue
+ 5010 continue
+       go to 2000
+c
+ 5500 continue
+      write(2,100)
+      itimex = int(dt1 + dt1/86400.0)
+      itime1 = itimex / 3600
+      itimey = itimex - itime1 * 3600
+      itime2 = itimey / 60
+      itime3 = itimey - itime2 * 60
+      write(2,200) itit,itime1,itime2,itime3
+      write(2,210) dt1,dt
+  200 format(5x,a80,' jikan : ',i3,'h ',i2,'m ',i2,'s ')
+  210 format(    85x,'  time : ',f10.3,'(s)  dt: ',f7.4,' (s)')
+c
+      do 2300 l=1,k3
+      nob(l) = l-2+i1
+ 2300 continue
+c
+      write(2,300)  (nob(l),l=1,k3)
+      m = m1 + 1
+      do 2100 n=m2,m1
+      m = m -1
+      write(2,400)  m-1
+c
+      do 3100 kk = 1 , idnum
+      write(2,540)  kk,(qmb(kk,i,m),i=i1,i2)
+ 3100 continue
+c
+      do 3200 kk = 1 , idnum
+      write(2,550)  kk,(qnb(kk,i,m),i=i1,i2)
+ 3200 continue
+c
+ 2100 continue
+ 2000 continue
+       j = m2
+       if(j.gt.2)  go to 9000
+ 1000 continue
+c
+      return
+c
+  100 format(1h1)
+  300 format(10x,12(1x,' x =',i4,1x))
+  400 format(2x,' y =',i4)
+  540 format(' qmb ',i5  ,12f10.5)
+  550 format(' qnb ',i5  ,12f10.5)
+c
+      end
+c -------------------------------------- write binary output (20-6-2010: adam pr)
+      subroutine  outdat(l,dt1,dt2)
+c
+      include'bb20.inc'
+c
+      write(7) l,dt1,dt2
+c
+      do 1000 j=2,jm0
+c
+      jj = j - 1
+      i1 = ibc(1,j) - 1
+      i2 = ibc(2,j) - 1
+c
+ccc   write(7) jj,i1,i2
+c     if(imax.le.0)  write(7) (hmax(i,j),i=ibc(1,j),ibc(2,j))
+c     if(imax.gt.0)  write(7) ( hh3(i,j),i=ibc(1,j),ibc(2,j))
+c     write(7) (qm2(i,j),i=ibc(1,j),ibc(2,j))
+c     write(7) (qn2(i,j),i=ibc(1,j),ibc(2,j))
+c     write(7) (dm(i,j),i=ibc(1,j),ibc(2,j))
+c     write(7) ((zl3(i,j)-zi(i,j)),i=ibc(1,j),ibc(2,j))
+c
+c     write(7) (qmt(i,j),i=ibc(1,j),ibc(2,j))
+c     write(7) (qnt(i,j),i=ibc(1,j),ibc(2,j))
+c     write(7) (qmbtt(i,j),i=ibc(1,j),ibc(2,j))
+ccc   write(7) (qnbtt(i,j),i=ibc(1,j),ibc(2,j))
+c
+      write(7) jj,i1,i2
+      write(7) ( hh3(i,j),i=ibc(1,j),ibc(2,j))
+      write(7) (qm2(i,j),i=ibc(1,j),ibc(2,j))
+      write(7) (qn2(i,j),i=ibc(1,j),ibc(2,j))
+      write(7) (fmax(i,j),i=ibc(1,j),ibc(2,j))
+      write(7) ((zl3(i,j)-zi(i,j)),i=ibc(1,j),ibc(2,j))
+c
+      do 1100 i=ibc(1,j),ibc(2,j)
+      if(dabs(hh3(i-1,j)+hh3(i,j)).gt.exm) then
+        ua2(i)=2.*qm2(i,j)/(hh3(i-1,j)+hh3(i,j))
+      else
+        ua2(i)=0.0
+      endif
+      if(dabs(hh3(i,j-1)+hh3(i,j)).gt.exm) then
+        va2(i)=2.*qn2(i,j)/(hh3(i,j-1)+hh3(i,j))
+      else
+        va2(i)=0.0
+      endif
+ 1100 continue
+      write(7) (ua2(i),i=ibc(1,j),ibc(2,j))
+      write(7) (va2(i),i=ibc(1,j),ibc(2,j))
+      write(7) (qmbtt(i,j),i=ibc(1,j),ibc(2,j))
+      write(7) (qnbtt(i,j),i=ibc(1,j),ibc(2,j))
+c
+ 2000 continue
+ 1000 continue
+c
+c 100 format(i12,2(1pe12.5))
+c 110 format(10(1pe12.5))
+c
+      return
+      end
+c ------------------------------------write temporary binaary output (20-6-2010: adam pr)
+      subroutine  allout(l,dt1,dt2)
+c
+      include'bb20.inc'
+c
+c
+      open(9,file=tmpfil,form='unformatted')
+c
+      write(9) l,dt1,dt2,imax
+c
+      do 1000 j=2,jm0
+c
+      jj = j - 1
+      i1 = ibc(1,j) - 1
+      i2 = ibc(2,j) - 1
+c
+      write(9) jj,i1,i2
+      write(9) (zl3(i,j),i=ibc(1,j),ibc(2,j))
+      write(9) (hh1(i,j),i=ibc(1,j),ibc(2,j))
+      write(9) (hh3(i,j),i=ibc(1,j),ibc(2,j))
+      write(9) (qm0(i,j),i=ibc(1,j),ibc(2,j))
+      write(9) (qm2(i,j),i=ibc(1,j),ibc(2,j))
+      write(9) (qn0(i,j),i=ibc(1,j),ibc(2,j))
+      write(9) (qn2(i,j),i=ibc(1,j),ibc(2,j))
+      write(9) (qmbtt(i,j),i=ibc(1,j),ibc(2,j))
+      write(9) (qnbtt(i,j),i=ibc(1,j),ibc(2,j))
+c
+ccc   if(imax.gt.0)  go to 1000
+      write(9) (qmt(i,j),i=ibc(1,j),ibc(2,j))
+      write(9) (qnt(i,j),i=ibc(1,j),ibc(2,j))
+      write(9) (hmax(i,j),i=ibc(1,j),ibc(2,j))
+      write(9) (fmax(i,j),i=ibc(1,j),ibc(2,j))
+      write(9) (cmax(i,j),i=ibc(1,j),ibc(2,j))
+      write(9) (qmax(i,j),i=ibc(1,j),ibc(2,j))
+      write(9) (qxm(i,j),i=ibc(1,j),ibc(2,j))
+      write(9) (qym(i,j),i=ibc(1,j),ibc(2,j))
+      write(9) (vxm(i,j),i=ibc(1,j),ibc(2,j))
+      write(9) (vym(i,j),i=ibc(1,j),ibc(2,j))
+ 1000 continue
+c
+c
+      do 2000  i=ibc(1,j),ibc(2,j)
+      write(9) (qmb(ll,i,j),qnb(ll,i,j),ll=1,idnum)
+      write(9) (dzd1(ll,i,j),dzd2(ll,i,j),ll=1,idnum)
+      write(9) (qmbdt(ll,i,j),qnbdt(ll,i,j),ll=1,idnum)
+ 2000 continue
+c
+      close(9)
+c
+c 100 format(i12,2(1pe12.5))
+c 110 format(10(1pe12.5))
+c
+      return
+      end
+c ---------------------------------------------------------------
+      subroutine femesh
+c
+      include'bb20.inc'
+c
+      npoin = imx*jmy
+      nelem = (imx-1)*(jmy-1)
+c
+      do i = 1,imx-1
+        do j = 1, jmy-1
+          ie = (i-1)*(jmy-1)+j
+          intmat(1,ie) = (i-1)*jmy+j
+          intmat(2,ie) = i*jmy+j
+          intmat(3,ie) = i*jmy+j+1
+          intmat(4,ie) = (i-1)*jmy+j+1
+        end do
+      end do
+c
+      do i = 1,imx
+        do j = 1, jmy
+          ip = (i-1)*jmy+j
+c          coord(1,ip) = (i-1)*dlx
+c          coord(2,ip) = (j-1)*dly
+c                                         transposed x = y_ori; y = -x_ori
+          coord(1,ip) = (j-1)*dly
+          coord(2,ip) = -(i-1)*dlx
+        end do
+      end do
+c      
+      return
+      end
+c
+c ---------------------------------------------------------------
+      SUBROUTINE OUTPUTG
+c
+      include'bb20.inc'
+c
+      CHARACTER GE*4, GNN*4
+C
+      OPEN(UNIT=8,FILE='o2.geo',STATUS='UNKNOWN',
+     *     ACCESS='SEQUENTIAL',FORM='FORMATTED')
+      GE = 'GE  '
+      GNN = 'GNN '
+    1 FORMAT(A4,10I6,F4.1)
+      DO 10 IE = 1,NELEM      
+        WRITE(8,1) GE,IE,(INTMAT(J,IE),J=1,4),0,0,0,0,1,0.0
+   10 CONTINUE
+C 
+    2 FORMAT(A4,I6,3F14.5)
+      DO 20 IGL = 1,NPOIN
+        WRITE(8,2) GNN,IGL,(COORD(J,IGL),J=1,2),val(IGL)
+   20 CONTINUE        
+   39 CLOSE(8)
+C
+      RETURN
+      END
+c --------------------------------------------------------------
+      SUBROUTINE OUTPUTR(IO)
+c
+      include'bb20.inc'
+c
+      CHARACTER GE*4, GNN*4
+C
+      GE = 'GE  '
+      GNN = 'GNN '
+    1 FORMAT(A4,10I6,F4.1)
+      DO 10 IE = 1,NELEM      
+        WRITE(IO,1) GE,IE,(INTMAT(J,IE),J=1,4),0,0,0,0,1,0.0
+   10 CONTINUE
+C 
+    2 FORMAT(A4,I6,3F14.5)
+      DO 20 IGL = 1,NPOIN
+        WRITE(IO,2) GNN,IGL,(COORD(J,IGL),J=1,2),val(IGL)
+   20 CONTINUE        
+C
+      RETURN
+      END
+c --------------------------------------------------------------
